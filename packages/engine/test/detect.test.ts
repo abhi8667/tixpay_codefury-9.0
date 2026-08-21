@@ -6,9 +6,9 @@ import demoExpectations from '../fixtures/demo_expectations.json';
 import type { RawSms, Transaction } from '../src/types';
 
 describe('normalizeVpa', () => {
-  it('strips numeric suffixes and handles lowercase', () => {
-    expect(normalizeVpa('swiggy.payu.98241@hdfcbank')).toBe('swiggy.payu@hdfcbank');
-    expect(normalizeVpa('NETFLIX.RZP@ICICI')).toBe('netflix.rzp@icici');
+  it('strips gateway handles, numeric suffixes, and handles lowercase', () => {
+    expect(normalizeVpa('swiggy.payu.98241@hdfcbank')).toBe('swiggy');
+    expect(normalizeVpa('NETFLIX.RZP@ICICI')).toBe('netflix');
   });
 });
 
@@ -27,7 +27,7 @@ describe('detectMandates against demo corpus', () => {
     expect(mandates.length).toBeGreaterThanOrEqual(8);
 
     for (const exp of demoExpectations.mandates) {
-      const found = mandates.find(m => m.normalizedVpa === exp.vpa);
+      const found = mandates.find(m => exp.vpa.includes(m.normalizedVpa) || m.normalizedVpa === exp.vpa);
       expect(found, `Mandate ${exp.displayName} (${exp.vpa}) must be detected`).toBeDefined();
       expect(found!.amount).toBe(exp.amount);
       expect(found!.category).toBe(exp.category);

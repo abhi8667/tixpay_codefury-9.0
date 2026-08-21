@@ -55,10 +55,13 @@ export function evaluatePayment(
   const hypoEarliest = getEarliest(hypotheticalShortfalls);
 
   if (hypoEarliest) {
+    const isCriticalOrHigh = hypoEarliest.atRisk.some(m => m.priority === 'CRITICAL' || m.priority === 'HIGH');
+    const targetLevel: VerdictLevel = isCriticalOrHigh ? 'WARNING' : 'ADVISORY';
+
     if (!origEarliest) {
       newShortfall = hypoEarliest;
       atRisk = hypoEarliest.atRisk;
-      level = 'WARNING';
+      level = targetLevel;
       const dateStr = formatIstDate(hypoEarliest.date);
       headline = `This leaves you ₹${hypoEarliest.deficit.toLocaleString('en-IN')} short on ${dateStr}.`;
       
@@ -73,7 +76,7 @@ export function evaluatePayment(
       if (hypoKey < origKey) {
         shiftedShortfall = { from: origEarliest.date, to: hypoEarliest.date };
         atRisk = hypoEarliest.atRisk;
-        level = 'WARNING';
+        level = targetLevel;
         
         const fromStr = formatIstDate(origEarliest.date);
         const toStr = formatIstDate(hypoEarliest.date);
@@ -87,7 +90,7 @@ export function evaluatePayment(
         // Same day or later, but deepens an existing shortfall
         newShortfall = hypoEarliest;
         atRisk = hypoEarliest.atRisk;
-        level = 'WARNING';
+        level = targetLevel;
         
         const dateStr = formatIstDate(hypoEarliest.date);
         headline = `This deepens your shortfall on ${dateStr} to ₹${hypoEarliest.deficit.toLocaleString('en-IN')}.`;

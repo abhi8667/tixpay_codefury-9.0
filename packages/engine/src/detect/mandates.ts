@@ -26,14 +26,24 @@ const DISPLAY_NAMES: Array<[RegExp, string]> = [
 ];
 
 /**
- * Normalise a VPA for grouping: lowercase, strip numeric order/transaction IDs.
- * E.g., 'swiggy.payu.98241@hdfcbank' → 'swiggy.payu@hdfcbank'
+ * Normalise a VPA for grouping: lowercase, strip gateway handles and order IDs.
+ * E.g., 'netflix.rzp@icici' → 'netflix', 'swiggy.payu.98241@hdfcbank' → 'swiggy'
  */
 export function normalizeVpa(vpa: string): string {
+  if (!vpa) return '';
   const parts = vpa.toLowerCase().trim().split('@');
-  if (parts.length !== 2) return vpa.toLowerCase();
-  const handle = parts[0]!.replace(/\.\d+$/g, '').replace(/\b[0-9a-f]{8,}\b/g, '');
-  return `${handle}@${parts[1]}`;
+  let handle = parts[0] ?? vpa.toLowerCase();
+  
+  // Strip common leading prefix indicators
+  handle = handle.replace(/^(?:sip|emi|bill)\./i, '');
+  
+  // Strip common trailing gateway/PSP tokens & order IDs
+  handle = handle
+    .replace(/\.(?:rzp|payu|bill|emi|premium|cc|pg|billdesk|juspay|ccavenue|merchant|payouts|bd)(?:\..*)?$/i, '')
+    .replace(/\.\d+$/g, '')
+    .replace(/\b[0-9a-f]{6,}\b/g, '');
+    
+  return handle.trim() || (parts[0] ?? vpa.toLowerCase());
 }
 
 /** Standard deviation helper for gap variance */

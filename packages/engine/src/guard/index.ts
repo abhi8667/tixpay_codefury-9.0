@@ -1,6 +1,7 @@
 import type { BalanceCurve, IncomeEvent, Intervention, Mandate, ShadowLedger, Shortfall } from '../types';
 import { PENALTY, PRIORITY_ORDER } from '../types';
-import { projectWithPaused, projectWithSweep } from '../project/curve';
+import { projectBalance, projectWithPaused, projectWithSweep } from '../project/curve';
+import { addDays, formatIstDate } from '../time';
 
 export interface ProposeOptions {
   /** Length of the curve A is rendering. Every resultingCurve must match it. */
@@ -140,6 +141,41 @@ export function proposeInterventions(
           resultingCurve: pauseCurve
         });
         break; // Found the optimal pause candidate
+      }
+    }
+  }
+
+  // 3. SHIFT - Move a mandate's debit date past the next income event.
+  const nextIncome = [...income]
+    .filter(e => e.date.getTime() > now.getTime())
+    .sort((a, b) => a.date.getTime() - b.date.getTime())[0];
+
+  if (nextIncome && nextIncome.date.getTime() <= addDays(now, days).getTime()) {
+    const shiftDate = addDays(nextIncome.date, 1);
+
+    for (const candidate of rankedCandidates) {
+      if (candidate.nextDebit.getTime() < nextIncome.date.getTime()) {
+        const shiftedMandates = mandates.map(m =>
+          m.id === candidate.id ? { ...m, nextDebit: shiftDate } : m
+        );
+        const shiftCurve = projectBalance(ledger, shiftedMandates, income, now, days);
+        const remainingShortfalls = findShortfalls(shiftCurve, shiftedMandates);
+
+        if (remainingShortfalls.length === 0 || remainingShortfalls[0]!.date.getTime() > shortfall.date.getTime()) {
+          const savedMandates = shortfall.atRisk.filter(m => m.id !== candidate.id);
+          const shiftPenaltyAvoided = savedMandates.reduce((sum, m) => sum + PENALTY[m.category], 0);
+
+          options.push({
+            kind: 'SHIFT',
+            label: `Shift ${candidate.displayName} to ${formatIstDate(shiftDate)}`,
+            target: candidate,
+            amount: candidate.amount,
+            penaltyAvoided: shiftPenaltyAvoided,
+            savedMandates,
+            resultingCurve: shiftCurve
+          });
+          break;
+        }
       }
     }
   }
