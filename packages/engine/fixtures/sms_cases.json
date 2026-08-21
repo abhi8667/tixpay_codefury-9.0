@@ -1,0 +1,459 @@
+[
+  {
+    "name": "hdfc_upi_debit",
+    "raw": {
+      "address": "AD-HDFCBK",
+      "body": "Rs.649.00 debited from a/c **4471 on 15-03-26 to VPA netflix.rzp@icici. Ref 507412889231. Avl Bal Rs.18,204.55. Not you? Call 18002586161",
+      "date": 1773546240000
+    },
+    "expect": {
+      "direction": "DEBIT",
+      "amount": 649,
+      "vpa": "netflix.rzp@icici",
+      "accountTail": "4471",
+      "balanceHint": 18204.55,
+      "refNo": "507412889231",
+      "bank": "HDFC",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "hdfc_upi_credit",
+    "raw": {
+      "address": "VM-HDFCBK-S",
+      "body": "Rs.2,500.00 credited to a/c **4471 on 12-03-26 from VPA rohit.sharma@okaxis. Ref 612349900112. Avl Bal Rs.21,004.55",
+      "date": 1773322320000
+    },
+    "expect": {
+      "direction": "CREDIT",
+      "amount": 2500,
+      "vpa": "rohit.sharma@okaxis",
+      "accountTail": "4471",
+      "balanceHint": 21004.55,
+      "refNo": "612349900112",
+      "bank": "HDFC",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "hdfc_salary_credit",
+    "raw": {
+      "address": "JD-HDFCBK-T",
+      "body": "INR 82,000.00 credited to a/c **4471 on 01-03-26 towards SALARY MAR2026 ACME TECH PVT LTD. Avl Bal INR 96,880.20",
+      "date": 1772326860000
+    },
+    "expect": {
+      "direction": "CREDIT",
+      "amount": 82000,
+      "accountTail": "4471",
+      "balanceHint": 96880.2,
+      "bank": "HDFC",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "hdfc_autopay_failed",
+    "raw": {
+      "address": "AD-HDFCBK",
+      "body": "Your UPI Autopay mandate of Rs.5,000.00 to sip.nippon@hdfcbank could not be processed due to insufficient funds. a/c **4471. Ref 771200034512",
+      "date": 1773282900000
+    },
+    "expect": {
+      "direction": "DEBIT",
+      "amount": 5000,
+      "vpa": "sip.nippon@hdfcbank",
+      "accountTail": "4471",
+      "refNo": "771200034512",
+      "bank": "HDFC",
+      "isFailure": true
+    }
+  },
+  {
+    "name": "hdfc_atm_withdrawal",
+    "raw": {
+      "address": "AD-HDFCBK",
+      "body": "Rs.5,000.00 withdrawn from a/c **4471 at HDFC ATM KORAMANGALA on 08-03-26. Avl Bal Rs.24,110.00",
+      "date": 1772972100000
+    },
+    "expect": {
+      "direction": "DEBIT",
+      "amount": 5000,
+      "accountTail": "4471",
+      "balanceHint": 24110,
+      "bank": "HDFC",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "hdfc_card_txn_not_upi",
+    "raw": {
+      "address": "AD-HDFCBK",
+      "body": "Rs.3,299.00 spent on HDFC Bank Card **8812 at CROMA BENGALURU on 14-03-26. Not you? Call 18002586161",
+      "date": 1773499260000
+    },
+    "expect": {
+      "direction": "DEBIT",
+      "amount": 3299,
+      "accountTail": "8812",
+      "bank": "HDFC",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "hdfc_amount_with_lakh_commas",
+    "raw": {
+      "address": "AD-HDFCBK",
+      "body": "Rs.1,25,000.00 credited to a/c **4471 on 05-03-26 from VPA client.payouts@icici. Ref 900112233445. Avl Bal Rs.1,41,880.20",
+      "date": 1772689800000
+    },
+    "expect": {
+      "direction": "CREDIT",
+      "amount": 125000,
+      "vpa": "client.payouts@icici",
+      "accountTail": "4471",
+      "balanceHint": 141880.2,
+      "refNo": "900112233445",
+      "bank": "HDFC",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "sbi_upi_debit",
+    "raw": {
+      "address": "VM-SBIINB",
+      "body": "Dear Customer, Rs.199.00 debited from A/c no. XX9032 on 11-03-26 transfer to spotify.bd@ybl Ref No 508811223344 -SBI",
+      "date": 1773203400000
+    },
+    "expect": {
+      "direction": "DEBIT",
+      "amount": 199,
+      "vpa": "spotify.bd@ybl",
+      "accountTail": "9032",
+      "refNo": "508811223344",
+      "bank": "SBI",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "sbi_upi_debit_no_balance",
+    "raw": {
+      "address": "VK-SBIINB-P",
+      "body": "Rs.1,450.00 debited from A/c XX9032 on 09-03-26 to bses.bill@axisbank Ref 508800991122 -SBI",
+      "date": 1773043200000
+    },
+    "expect": {
+      "direction": "DEBIT",
+      "amount": 1450,
+      "vpa": "bses.bill@axisbank",
+      "accountTail": "9032",
+      "refNo": "508800991122",
+      "bank": "SBI",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "sbi_credit",
+    "raw": {
+      "address": "VM-SBIINB",
+      "body": "Dear Customer, Rs.7,800.00 credited to A/c no. XX9032 on 03-03-26 by transfer from UPI. Avl Bal Rs.12,300.00 -SBI",
+      "date": 1772530920000
+    },
+    "expect": {
+      "direction": "CREDIT",
+      "amount": 7800,
+      "accountTail": "9032",
+      "balanceHint": 12300,
+      "bank": "SBI",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "icici_sip_debit",
+    "raw": {
+      "address": "JD-ICICIB",
+      "body": "ICICI Bank Acct XX7710 debited with Rs 5,000.00 on 12-Mar-26 towards UPI mandate sip.groww@icici. Ref 601200334455. Avl Bal Rs 8,412.30",
+      "date": 1773279900000
+    },
+    "expect": {
+      "direction": "DEBIT",
+      "amount": 5000,
+      "vpa": "sip.groww@icici",
+      "accountTail": "7710",
+      "balanceHint": 8412.3,
+      "refNo": "601200334455",
+      "bank": "ICICI",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "icici_autopay_declined",
+    "raw": {
+      "address": "JD-ICICIB-S",
+      "body": "Your mandate debit of Rs 2,199.00 to hotstar.rzp@icici on 12-Mar-26 was declined. Acct XX7710. Ref 601299887766",
+      "date": 1773280200000
+    },
+    "expect": {
+      "direction": "DEBIT",
+      "amount": 2199,
+      "vpa": "hotstar.rzp@icici",
+      "accountTail": "7710",
+      "refNo": "601299887766",
+      "bank": "ICICI",
+      "isFailure": true
+    }
+  },
+  {
+    "name": "icici_refund_credit",
+    "raw": {
+      "address": "JD-ICICIB",
+      "body": "ICICI Bank Acct XX7710 credited with Rs 1,299.00 on 10-Mar-26 by refund from myntra.rzp@icici. Ref 601233221100",
+      "date": 1773141000000
+    },
+    "expect": {
+      "direction": "CREDIT",
+      "amount": 1299,
+      "vpa": "myntra.rzp@icici",
+      "accountTail": "7710",
+      "refNo": "601233221100",
+      "bank": "ICICI",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "kotak_upi_debit_swiggy",
+    "raw": {
+      "address": "AX-KOTAKB",
+      "body": "Sent Rs.428.00 from Kotak Bank AC X1180 to swiggy.payu.98241@hdfcbank on 13-03-26. UPI Ref 512300998877. Avl Bal Rs.9,870.40",
+      "date": 1773416100000
+    },
+    "expect": {
+      "direction": "DEBIT",
+      "amount": 428,
+      "vpa": "swiggy.payu.98241@hdfcbank",
+      "accountTail": "1180",
+      "balanceHint": 9870.4,
+      "refNo": "512300998877",
+      "bank": "KOTAK",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "kotak_emi_debit",
+    "raw": {
+      "address": "AX-KOTAKB-T",
+      "body": "Rs.12,450.00 debited from Kotak Bank AC X1180 on 05-03-26 towards EMI bajajfinserv.emi@kotak. Ref 512300111222. Avl Bal Rs.31,200.00",
+      "date": 1772681400000
+    },
+    "expect": {
+      "direction": "DEBIT",
+      "amount": 12450,
+      "vpa": "bajajfinserv.emi@kotak",
+      "accountTail": "1180",
+      "balanceHint": 31200,
+      "refNo": "512300111222",
+      "bank": "KOTAK",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "axis_insurance_debit",
+    "raw": {
+      "address": "VK-AXISBK",
+      "body": "INR 1,899.00 debited from A/c no. XX2204 on 07-03-26 to lic.premium@axisbank UPI Ref 703400556677. Available Balance INR 44,120.75",
+      "date": 1772853300000
+    },
+    "expect": {
+      "direction": "DEBIT",
+      "amount": 1899,
+      "vpa": "lic.premium@axisbank",
+      "accountTail": "2204",
+      "balanceHint": 44120.75,
+      "refNo": "703400556677",
+      "bank": "AXIS",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "axis_salary_credit",
+    "raw": {
+      "address": "VK-AXISBK-S",
+      "body": "INR 64,500.00 credited to A/c no. XX2204 on 28-02-26 SALARY FEB26. Available Balance INR 71,300.10",
+      "date": 1772239200000
+    },
+    "expect": {
+      "direction": "CREDIT",
+      "amount": 64500,
+      "accountTail": "2204",
+      "balanceHint": 71300.1,
+      "bank": "AXIS",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "axis_payment_declined",
+    "raw": {
+      "address": "VK-AXISBK",
+      "body": "Your payment of INR 899.00 to zee5.rzp@axisbank on 12-03-26 has failed due to insufficient balance. A/c XX2204",
+      "date": 1773288000000
+    },
+    "expect": {
+      "direction": "DEBIT",
+      "amount": 899,
+      "vpa": "zee5.rzp@axisbank",
+      "accountTail": "2204",
+      "bank": "AXIS",
+      "isFailure": true
+    }
+  },
+  {
+    "name": "pnb_upi_debit",
+    "raw": {
+      "address": "BP-PNBSMS",
+      "body": "Rs.249.00 debited from Ac XX5561 on 06-03-26 to jiofiber.bill@pnb Ref 880100223344. Bal Rs.15,600.00 -PNB",
+      "date": 1772778600000
+    },
+    "expect": {
+      "direction": "DEBIT",
+      "amount": 249,
+      "vpa": "jiofiber.bill@pnb",
+      "accountTail": "5561",
+      "refNo": "880100223344",
+      "bank": "PNB",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "pnb_credit",
+    "raw": {
+      "address": "BP-PNBSMS-P",
+      "body": "Rs.3,000.00 credited to Ac XX5561 on 04-03-26 by UPI from anita.k@oksbi. Ref 880100999888. Avl Bal Rs.18,849.00 -PNB",
+      "date": 1772628720000
+    },
+    "expect": {
+      "direction": "CREDIT",
+      "amount": 3000,
+      "vpa": "anita.k@oksbi",
+      "accountTail": "5561",
+      "balanceHint": 18849,
+      "refNo": "880100999888",
+      "bank": "PNB",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "pnb_lowercase_inr",
+    "raw": {
+      "address": "BP-PNBSMS",
+      "body": "inr 349.00 debited from Ac XX5561 on 02-03-26 to primevideo.rzp@pnb Ref 880100777666",
+      "date": 1772469900000
+    },
+    "expect": {
+      "direction": "DEBIT",
+      "amount": 349,
+      "vpa": "primevideo.rzp@pnb",
+      "accountTail": "5561",
+      "refNo": "880100777666",
+      "bank": "PNB",
+      "isFailure": false
+    }
+  },
+  {
+    "name": "otp_hdfc",
+    "raw": {
+      "address": "AD-HDFCBK",
+      "body": "928134 is your OTP for a transaction of Rs.8,000.00 at CROMA. Valid for 10 mins. Do not share with anyone. -HDFC Bank",
+      "date": 1773499140000
+    },
+    "expect": null
+  },
+  {
+    "name": "otp_icici",
+    "raw": {
+      "address": "JD-ICICIB",
+      "body": "OTP 447120 for your ICICI Bank net banking login. Never share this code. Valid 5 minutes.",
+      "date": 1773207000000
+    },
+    "expect": null
+  },
+  {
+    "name": "otp_sbi_upi",
+    "raw": {
+      "address": "VM-SBIINB",
+      "body": "Use OTP 771203 to register your UPI ID. Rs.1.00 verification. Do not share. -SBI",
+      "date": 1772339700000
+    },
+    "expect": null
+  },
+  {
+    "name": "promo_hdfc_loan",
+    "raw": {
+      "address": "AD-HDFCBK",
+      "body": "Congratulations! You are pre-approved for a Personal Loan of Rs.5,00,000 at 10.5% p.a. Click bit.ly/hdfcpl to apply. T&C apply",
+      "date": 1773045000000
+    },
+    "expect": null
+  },
+  {
+    "name": "promo_kotak_card",
+    "raw": {
+      "address": "AX-KOTAKB",
+      "body": "Get a Kotak 811 Credit Card with zero joining fee. Earn upto 5% cashback on dining. Apply now kotak.com/cc",
+      "date": 1773127800000
+    },
+    "expect": null
+  },
+  {
+    "name": "promo_axis_offer",
+    "raw": {
+      "address": "VK-AXISBK",
+      "body": "Flat 20% off on dining with your Axis Bank Card this weekend. Min spend Rs.1,500. Offer valid till 31-Mar-26. T&C",
+      "date": 1772949600000
+    },
+    "expect": null
+  },
+  {
+    "name": "hdfc_future_debit_notice",
+    "raw": {
+      "address": "AD-HDFCBK",
+      "body": "Your a/c **4471 will be debited with Rs.5,000.00 on 12-03-26 towards UPI Autopay mandate sip.nippon@hdfcbank. Ensure sufficient balance.",
+      "date": 1773113400000
+    },
+    "expect": null
+  },
+  {
+    "name": "icici_mandate_registration",
+    "raw": {
+      "address": "JD-ICICIB",
+      "body": "You have successfully registered a UPI Autopay mandate of Rs 2,199.00 to hotstar.rzp@icici. First debit will be on 12-Mar-26.",
+      "date": 1770870600000
+    },
+    "expect": null
+  },
+  {
+    "name": "sbi_balance_enquiry",
+    "raw": {
+      "address": "VM-SBIINB",
+      "body": "Your A/c XX9032 balance as on 11-03-26 is Rs.12,300.00. Thank you for banking with us. -SBI",
+      "date": 1773199800000
+    },
+    "expect": null
+  },
+  {
+    "name": "kotak_statement_notice",
+    "raw": {
+      "address": "AX-KOTAKB",
+      "body": "Your Kotak Bank account statement for Feb 2026 is ready. Download from the mobile app. Do not reply.",
+      "date": 1772332200000
+    },
+    "expect": null
+  },
+  {
+    "name": "non_bank_sender_swiggy",
+    "raw": {
+      "address": "AD-SWGGYI",
+      "body": "Your Swiggy order from Meghana Foods is out for delivery. Track live in the app. Rs.428 paid via UPI.",
+      "date": 1773416400000
+    },
+    "expect": null
+  }
+]

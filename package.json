@@ -1,0 +1,12 @@
+{
+  "name": "tixpay",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "test": "pnpm --filter @tixpay/engine test",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}

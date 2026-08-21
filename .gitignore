@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# Real inbox dump — never commit, contains personal SMS
+packages/engine/fixtures/real_inbox.json

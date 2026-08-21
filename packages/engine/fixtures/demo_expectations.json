@@ -1,0 +1,118 @@
+{
+  "seed": 42,
+  "now": "2026-03-01T03:30:00.000Z",
+  "primaryAccount": "4471",
+  "secondaryAccount": "9032",
+  "anchorBalance": 21597,
+  "messageCount": 464,
+  "mandates": [
+    {
+      "displayName": "Bajaj Finserv EMI",
+      "vpa": "bajajfinserv.emi@kotak",
+      "amount": 12450,
+      "dayOfMonth": 5,
+      "category": "EMI",
+      "expectedOccurrences": 6
+    },
+    {
+      "displayName": "JioFiber",
+      "vpa": "jiofiber.bill@pnb",
+      "amount": 249,
+      "dayOfMonth": 6,
+      "category": "UTILITY",
+      "expectedOccurrences": 6
+    },
+    {
+      "displayName": "LIC Premium",
+      "vpa": "lic.premium@axisbank",
+      "amount": 1899,
+      "dayOfMonth": 7,
+      "category": "INSURANCE",
+      "expectedOccurrences": 6
+    },
+    {
+      "displayName": "Netflix",
+      "vpa": "netflix.rzp@icici",
+      "amount": 649,
+      "dayOfMonth": 8,
+      "category": "OTT",
+      "expectedOccurrences": 6
+    },
+    {
+      "displayName": "BESCOM Electricity",
+      "vpa": "bses.bill@axisbank",
+      "amount": 1450,
+      "dayOfMonth": 9,
+      "category": "UTILITY",
+      "expectedOccurrences": 6
+    },
+    {
+      "displayName": "Nippon India SIP",
+      "vpa": "sip.nippon@hdfcbank",
+      "amount": 5000,
+      "dayOfMonth": 12,
+      "category": "SIP",
+      "expectedOccurrences": 6
+    },
+    {
+      "displayName": "Disney+ Hotstar",
+      "vpa": "hotstar.rzp@icici",
+      "amount": 299,
+      "dayOfMonth": 15,
+      "category": "OTT",
+      "expectedOccurrences": 6
+    },
+    {
+      "displayName": "Groww SIP",
+      "vpa": "sip.groww@icici",
+      "amount": 2000,
+      "dayOfMonth": 20,
+      "category": "SIP",
+      "expectedOccurrences": 6
+    }
+  ],
+  "income": {
+    "salaried": {
+      "amount": 82000,
+      "dayOfMonth": 25
+    },
+    "irregular": {
+      "count": 9,
+      "meanAmount": 21067
+    }
+  },
+  "shortfall": {
+    "date": "2026-03-12",
+    "balanceBeforeSip": 4900,
+    "sipAmount": 5000,
+    "balanceAfterSip": -100,
+    "lever": {
+      "displayName": "Netflix",
+      "amount": 649,
+      "resultingBalance": 549
+    },
+    "penaltyAvoided": 250
+  },
+  "prePayment": {
+    "amount": 8000,
+    "shiftsShortfallTo": "2026-03-09",
+    "balanceOnNinth": -3100
+  },
+  "historicalFailures": [
+    {
+      "vpa": "sip.nippon@hdfcbank",
+      "date": "2025-12-12",
+      "expectedCause": "LIQUIDITY"
+    },
+    {
+      "vpa": "hotstar.rzp@icici",
+      "date": "2026-01-15",
+      "expectedCause": "INTENTIONAL"
+    },
+    {
+      "vpa": "bses.bill@axisbank",
+      "date": "2026-02-22",
+      "expectedCause": "LIQUIDITY"
+    }
+  ]
+}
