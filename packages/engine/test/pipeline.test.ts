@@ -25,6 +25,8 @@ describe('runPipeline — the seam Person C binds to', () => {
     expect(result.mandates.length).toBeGreaterThan(0);
     expect(result.income.length).toBeGreaterThan(0);
     expect(result.curve).toHaveLength(30);
+    expect(result.shortfalls.length).toBeGreaterThan(0);
+    expect(result.interventions.length).toBeGreaterThan(0);
   });
 
   it('parses across all six banks', () => {

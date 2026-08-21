@@ -1,11 +1,12 @@
 import type {
-  BalanceCurve, IncomeEvent, Mandate, RawSms, ShadowLedger, Transaction,
+  BalanceCurve, IncomeEvent, Intervention, Mandate, RawSms, ShadowLedger, Shortfall, Transaction,
 } from './types';
 import { parseSms } from './parse/sms';
 import { detectMandates } from './detect/mandates';
 import { buildLedger, type BuildLedgerOptions } from './project/ledger';
 import { inferIncomeEvents } from './project/income';
 import { MIN_PROJECT_CONFIDENCE, projectBalance, type ProjectOptions } from './project/curve';
+import { findShortfalls, proposeInterventions } from './guard';
 
 /**
  * The single entry point.
@@ -57,6 +58,8 @@ export interface PipelineResult {
   mandates: Mandate[];
   income: IncomeEvent[];
   curve: BalanceCurve;
+  shortfalls: Shortfall[];
+  interventions: Intervention[];
   stats: PipelineStats;
 }
 
@@ -94,6 +97,11 @@ export function runPipeline(
   }
   const curve = projectBalance(ledger, mandates, income, now, days, projectOptions);
 
+  const shortfalls = findShortfalls(curve, mandates);
+  const interventions = shortfalls.flatMap((s) =>
+    proposeInterventions(s, mandates, ledger, income, now)
+  );
+
   const banks = [...new Set(txns.map((t) => t.bank))].sort();
 
   return {
@@ -102,6 +110,8 @@ export function runPipeline(
     mandates,
     income,
     curve,
+    shortfalls,
+    interventions,
     stats: {
       messages: inbox.length,
       parsed: txns.length,
