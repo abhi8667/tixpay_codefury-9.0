@@ -16,6 +16,7 @@
    - [Phase 5: The Grand Pipeline Integration](#25-the-grand-pipeline-integration)
 3. [Module-by-Module Technical Deep Dive](#3-module-by-module-technical-deep-dive)
 4. [Testing & Scenario Verification](#4-testing--scenario-verification)
+5. [Test Suite & Demo Scenario Walkthrough](#5-test-suite--demo-scenario-walkthrough)
 
 ---
 
@@ -113,3 +114,79 @@ Run the automated pitch script that simulates the live 2-minute stage presentati
 ```bash
 pnpm --filter @tixpay/engine exec tsx scripts/use_case_demo.ts
 ```
+
+---
+
+## 5. Test Suite & Demo Scenario Walkthrough
+
+The engine is protected by **15 test files containing 253 passing tests**. Below is a detailed walkthrough of what each test suite verifies.
+
+### 5.1 Test Files Breakdown
+
+| Test File | Tests | Focus Area & Verified Behavior |
+|---|---|---|
+| `test/purity.test.ts` | 56 | **Architectural Rules:** Scans source files to enforce 0 `new Date()` calls without arguments, 0 React/Native dependencies, and pure TS exports. |
+| `test/useCase.test.ts` | 4 | **Live Demo Pitch Script:** End-to-end walkthrough of the 4 key stage demo beats (Initial State, Shortfall Detection, Pre-Payment Intercept, Bounce Guard Resolution). |
+| `test/pipeline.test.ts` | 30 | **Pipeline Integration:** Verifies `runPipeline()` end-to-end stats, parse floor (>70%), single account reconciliation (`4471`), and strict determinism. |
+| `test/parse.test.ts` | 39 | **Bank SMS Parser:** Validates `parseSms` against 30 hand-labelled real-world Indian bank SMS cases (HDFC, SBI, ICICI, Kotak, Axis, PNB, OTPs, promos). |
+| `test/project.test.ts` | 32 | **Shadow Ledger & Projections:** Verifies chronological ledger walks, balance hint snapping, zero drift, and 30-point curve generation. |
+| `test/deepLink.test.ts` | 29 | **UPI QR Code Parsing:** Verifies `parseUpiDeepLink()` on static QRs, amount extraction, VPA shapes, and Android `intent://` URL wrappers. |
+| `test/demoCorpus.test.ts` | 25 | **Synthetic Corpus Generator:** Asserts that seed 42 produces 468 messages with exact expected mandate counts and shortfall dates. |
+| `test/time.test.ts` | 8 | **IST Timezone Math:** Verifies `istDayKey`, `startOfIstDay`, `daysBetween`, and calendar month advancement across leap years & February boundaries. |
+| `test/fixtures.test.ts` | 7 | **Static Datasets:** Validates `cards.json`, `mcc_map.json`, and `vpa_patterns.json` schema integrity. |
+| `test/route.test.ts` | 6 | **Card Router:** Verifies `resolveMcc()` confidence scores, reward caps, and fee-waiver proximity recommendations. |
+| `test/money.test.ts` | 6 | **Currency Math:** Validates `toPaise`, `toRupees`, `round2`, `roundUpTo500`, and Indian lakh comma string parsing (`1,25,000.00`). |
+| `test/detect.test.ts` | 3 | **Mandate Engine:** Verifies VPA normalization and median-gap recurring auto-debit discovery. |
+| `test/guard.test.ts` | 3 | **Bounce Guard:** Verifies priority ranking (`EMI > SIP > INSURANCE > UTILITY > OTT`) and candidate intervention proposal. |
+| `test/attribute.test.ts` | 3 | **Failure Attribution:** Verifies `classifyFailure()` for `LIQUIDITY`, `INTENTIONAL`, and `UNKNOWN` cases. |
+| `test/evaluate.test.ts` | 2 | **Pre-Payment Intercept:** Verifies hypothetical ledger cloning, shortfall shift detection, and headline string formatting. |
+
+---
+
+### 5.2 Step-by-Step Pitch Scenario Walkthrough (`useCase.test.ts`)
+
+The end-to-end scenario script (`scripts/use_case_demo.ts` and `test/useCase.test.ts`) simulates the exact 2-minute live demo on stage:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Demo Presenter
+    participant Pipeline as runPipeline()
+    participant Intercept as evaluatePayment()
+    participant Guard as projectWithPaused()
+
+    User->>Pipeline: 1. Launch App (Inbox: 468 SMS, Date: 2026-03-01)
+    Pipeline-->>User: Discovers 8 Mandates, Ledger Bal: ₹21,597, 30-Day Curve
+    
+    Note over User,Pipeline: 2. Cash-Flow Calendar Shortfall
+    Pipeline-->>User: 12 March Shortfall Detected! (₹5,000 Nippon SIP at risk, Deficit: ₹600)
+
+    User->>Intercept: 3. User scans ₹8,000 Croma QR on 9 March
+    Intercept-->>User: WARNING: "This moves your shortfall from 12 March to 7 March."<br/>Recommendation: "Swipe Axis Visa Signature (₹4,000 from fee waiver)."
+
+    User->>Guard: 4. User taps "Pause Netflix (₹649)"
+    Guard-->>User: Curve Re-animates! 12 March Balance: ₹549 (Rescued! > ₹500 Buffer)
+```
+
+#### Step 1: Initializing App State (1 March 2026)
+- **Action:** User opens TiXPay. `runPipeline(inbox, NOW)` processes 468 raw SMS messages.
+- **Output:** 
+  - 343 financial transactions extracted (73.3% parse yield).
+  - Primary account reconciled: **A/c 4471** (Shadow balance: ₹21,597, Drift: ₹0).
+  - Surfaced 8 mandates: Bajaj Finserv EMI (₹12,450), Nippon India SIP (₹5,000), Groww SIP (₹2,000), LIC Premium (₹1,899), JioFiber (₹249), BESCOM Electricity (₹1,450), Netflix (₹649), Hotstar (₹299).
+
+#### Step 2: Shortfall Detection on 12 March 2026 (Beat 5)
+- **Action:** The 30-day balance curve is projected forward from 1st March.
+- **Output:** On 12th March, the ₹5,000 Nippon India SIP fires. The balance drops below the ₹500 safety buffer to -₹100 (Deficit: ₹600). The app flags **1 Shortfall** with ₹250 penalty at risk.
+
+#### Step 3: Pre-Payment Intercept (Beat 8)
+- **Action:** On 9th March, the user scans a ₹8,000 electronics QR at Croma (`upi://pay?pa=croma.store@icici&am=8000&mc=5732`). `evaluatePayment()` runs.
+- **Output:**
+  - **Verdict:** `WARNING`
+  - **Headline:** `"This moves your shortfall from 12 March to 7 March."`
+  - **Subline:** `"Your ₹1,899 LIC Premium will bounce earlier."`
+  - **Card Router:** Recommends `CARD_SWIPE` using **Axis Visa Signature** (*"You're ₹4,000 from your fee waiver"*).
+
+#### Step 4: Bounce Guard Resolution (Beat 9)
+- **Action:** User taps the shortfall dip on the calendar and accepts the one-tap intervention: **Pause Netflix (₹649)**.
+- **Output:** `projectWithPaused()` re-evaluates the curve. Restoring ₹649 from 7th March raises the 12th March balance to **+₹549**, safely above the ₹500 buffer. The SIP is saved, and the curve turns green!
