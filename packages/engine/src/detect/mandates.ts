@@ -1,5 +1,5 @@
 import type { Mandate, Transaction, Cadence, Priority, Category } from '../types';
-import { addDays, daysBetween, startOfIstDay } from '../time';
+import { daysBetween, istDayOfMonth, istDayOfWeek, nextOccurrence } from '../time';
 
 /** Keyword rules for categorisation and priority ranking */
 const CATEGORY_RULES: Array<[RegExp, Category, Priority]> = [
@@ -160,15 +160,19 @@ export function detectMandates(txns: Transaction[], now: Date): Mandate[] {
       displayName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
     }
 
-    // Last debit date and next debit calculation
+    // Last debit date and next debit calculation.
+    //
+    // dayOfMonth is read in IST, not UTC: a debit at 00:30 IST is 19:00 UTC on
+    // the *previous* day, and getUTCDate() would file it under the wrong date.
+    //
+    // nextDebit advances by calendar month anchored to dayOfMonth. Adding the
+    // median gap instead walks the mandate forward — months are 28–31 days, so
+    // a day-5 mandate with a 31-day median lands on the 8th.
     const lastTxn = b.txns[b.txns.length - 1]!;
-    let nextDebit = addDays(lastTxn.timestamp, Math.round(medGap));
-    const nowStart = startOfIstDay(now);
-
-    // Project forward until nextDebit is at or after now
-    while (nextDebit.getTime() < nowStart.getTime()) {
-      nextDebit = addDays(nextDebit, Math.round(medGap));
-    }
+    const dayOfMonth = cadence === 'WEEKLY'
+      ? istDayOfWeek(lastTxn.timestamp)
+      : istDayOfMonth(lastTxn.timestamp);
+    const nextDebit = nextOccurrence(lastTxn.timestamp, cadence, dayOfMonth, now);
 
     const medianAmt = Math.round(median(b.amounts));
 
@@ -178,7 +182,7 @@ export function detectMandates(txns: Transaction[], now: Date): Mandate[] {
       displayName,
       amount: medianAmt,
       cadence,
-      dayOfMonth: lastTxn.timestamp.getUTCDate(),
+      dayOfMonth,
       nextDebit,
       confidence,
       occurrences,

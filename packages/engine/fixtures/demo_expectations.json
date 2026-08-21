@@ -4,7 +4,9 @@
   "primaryAccount": "4471",
   "secondaryAccount": "9032",
   "anchorBalance": 21597,
-  "messageCount": 464,
+  "openingBalance": 38000,
+  "closingBalance": 21597,
+  "messageCount": 468,
   "mandates": [
     {
       "displayName": "Bajaj Finserv EMI",
@@ -26,7 +28,7 @@
       "displayName": "LIC Premium",
       "vpa": "lic.premium@axisbank",
       "amount": 1899,
-      "dayOfMonth": 7,
+      "dayOfMonth": 9,
       "category": "INSURANCE",
       "expectedOccurrences": 6
     },
@@ -34,7 +36,7 @@
       "displayName": "Netflix",
       "vpa": "netflix.rzp@icici",
       "amount": 649,
-      "dayOfMonth": 8,
+      "dayOfMonth": 7,
       "category": "OTT",
       "expectedOccurrences": 6
     },
@@ -58,7 +60,7 @@
       "displayName": "Disney+ Hotstar",
       "vpa": "hotstar.rzp@icici",
       "amount": 299,
-      "dayOfMonth": 15,
+      "dayOfMonth": 18,
       "category": "OTT",
       "expectedOccurrences": 6
     },
@@ -77,8 +79,8 @@
       "dayOfMonth": 25
     },
     "irregular": {
-      "count": 9,
-      "meanAmount": 21067
+      "count": 7,
+      "meanAmount": 21514
     }
   },
   "shortfall": {

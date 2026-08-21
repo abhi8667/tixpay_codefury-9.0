@@ -69,10 +69,15 @@ export interface Mandate {
 
 // ─── Ledger, income, projection ──────────────────────────────────────────────
 
+export type IncomeKind = 'SALARY' | 'IRREGULAR';
+
 export interface IncomeEvent {
   amount: number;
   date: Date;
   confidence: number;
+  /** 'Salary' / 'Freelance income' — rendered as a marker on the curve. */
+  label?: string;
+  kind?: IncomeKind;
 }
 
 export interface LedgerEvent {
@@ -99,6 +104,20 @@ export interface ShadowLedger {
   drift: number;
   /** Timestamp of the last balance hint we snapped to, if any. */
   lastReconciledAt?: Date;
+  /** The account this ledger reconciles. Other accounts and cards are excluded. */
+  accountTail?: string;
+  /** How many SMS stated a balance we could snap to. */
+  reconciliations?: number;
+  /** Worst and average |inferred − stated| across all snaps. Pitch material. */
+  maxDrift?: number;
+  meanDrift?: number;
+  /** Epoch ms of every balance-stating SMS. Used to judge whether a balance
+   *  near a given date is trustworthy — see hasReliableBalanceAt. */
+  hintTimestamps?: number[];
+  /**
+   * NOTE FOR PERSON C: this is a method, so the ledger does not survive
+   * JSON serialisation. Derive it in a selector; never persist it to MMKV.
+   */
   balanceAt(date: Date): number;
 }
 

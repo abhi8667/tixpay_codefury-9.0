@@ -11,3 +11,5 @@ export * from './money';
 export * from './time';
 export * from './parse';
 export * from './detect';
+export * from './project';
+export * from './pipeline';

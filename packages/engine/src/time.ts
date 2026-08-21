@@ -47,6 +47,73 @@ export function isSameIstDay(a: Date, b: Date): boolean {
   return istDayKey(a) === istDayKey(b);
 }
 
+/** Calendar parts of an instant, read in IST. */
+export function istParts(date: Date): { year: number; month: number; day: number; hour: number; minute: number } {
+  const d = new Date(date.getTime() + IST_OFFSET_MS);
+  return {
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth() + 1, // 1–12
+    day: d.getUTCDate(),
+    hour: d.getUTCHours(),
+    minute: d.getUTCMinutes(),
+  };
+}
+
+/** Build a UTC instant from IST calendar parts. */
+export function fromIstParts(
+  year: number, month: number, day: number, hour = 0, minute = 0,
+): Date {
+  return new Date(Date.UTC(year, month - 1, day, hour, minute) - IST_OFFSET_MS);
+}
+
+export function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/**
+ * The next occurrence of a recurring debit at or after `now`.
+ *
+ * MONTHLY and QUARTERLY advance by CALENDAR MONTH, anchored to `dayOfMonth` —
+ * not by adding a median gap in days. Adding the median gap is the bug that
+ * looks harmless in a unit test and then walks every mandate forward: months
+ * are 28–31 days, so a day-5 mandate whose median gap is 31 projects to the
+ * 8th, and the whole demo calendar shifts three days to the right.
+ *
+ * A `dayOfMonth` past the end of a short month clamps to the last day, which is
+ * what banks actually do with a 31st-of-the-month mandate in February.
+ */
+export function nextOccurrence(
+  last: Date,
+  cadence: 'MONTHLY' | 'WEEKLY' | 'QUARTERLY',
+  dayOfMonth: number,
+  now: Date,
+): Date {
+  const floor = startOfIstDay(now).getTime();
+
+  if (cadence === 'WEEKLY') {
+    let next = last;
+    // Guard the loop: 520 weeks is ten years, far past any real inbox.
+    for (let i = 0; i < 520 && next.getTime() < floor; i++) next = addDays(next, 7);
+    return next;
+  }
+
+  const step = cadence === 'QUARTERLY' ? 3 : 1;
+  const { year, month, hour, minute } = istParts(last);
+
+  let y = year;
+  let m = month;
+  for (let i = 0; i < 240; i++) {
+    const candidate = fromIstParts(y, m, Math.min(dayOfMonth, daysInMonth(y, m)), hour, minute);
+    if (candidate.getTime() >= floor) return candidate;
+    m += step;
+    while (m > 12) {
+      m -= 12;
+      y += 1;
+    }
+  }
+  return last;
+}
+
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
