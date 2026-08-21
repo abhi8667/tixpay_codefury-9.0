@@ -69,7 +69,8 @@ export interface Mandate {
 
 // ─── Ledger, income, projection ──────────────────────────────────────────────
 
-export type IncomeKind = 'SALARY' | 'IRREGULAR';
+/** SWEEP is a user-initiated transfer proposed by an intervention, not inferred income. */
+export type IncomeKind = 'SALARY' | 'IRREGULAR' | 'SWEEP';
 
 export interface IncomeEvent {
   amount: number;

@@ -1,6 +1,11 @@
 import type { BalanceCurve, IncomeEvent, Intervention, Mandate, ShadowLedger, Shortfall } from '../types';
 import { PENALTY, PRIORITY_ORDER } from '../types';
-import { projectWithPaused } from '../project/curve';
+import { projectWithPaused, projectWithSweep } from '../project/curve';
+
+export interface ProposeOptions {
+  /** Length of the curve A is rendering. Every resultingCurve must match it. */
+  days?: number;
+}
 
 /** Sort mandates by priority rank, then amount descending. */
 export function rankByPriority(mandates: Mandate[]): Mandate[] {
@@ -54,6 +59,11 @@ export function findShortfalls(curve: BalanceCurve, mandates: Mandate[], buffer 
     }
   }
 
+  // Rank each shortfall's at-risk list so the most critical, largest mandate is
+  // first. Callers read atRisk[0] to name the casualty in the verdict subline:
+  // 'your ₹5,000 SIP will bounce' is the line, not 'your ₹1,899 LIC premium'.
+  for (const s of shortfalls) s.atRisk = rankByPriority(s.atRisk);
+
   return shortfalls;
 }
 
@@ -65,25 +75,36 @@ export function proposeInterventions(
   mandates: Mandate[],
   ledger: ShadowLedger,
   income: IncomeEvent[],
-  now: Date
+  now: Date,
+  options_: ProposeOptions = {}
 ): Intervention[] {
   const options: Intervention[] = [];
 
+  // Every resultingCurve MUST be the same length as the curve A is already
+  // rendering. A's morph interpolates point by point, so a mismatch is not a
+  // cosmetic bug — it is a broken animation on the headline beat.
+  const days = options_.days ?? 30;
+
   // 1. SWEEP - Move deficit + buffer in from elsewhere. Round up to nearest 500.
   const sweepAmount = Math.ceil((shortfall.deficit + 500) / 500) * 500;
-  const sweepCurve = projectWithPaused(ledger, mandates, income, now, [], sweepAmount);
+  const sweepCurve = projectWithSweep(ledger, mandates, income, now, sweepAmount, days);
 
   let penaltyAvoided = 0;
   for (const m of shortfall.atRisk) penaltyAvoided += PENALTY[m.category];
 
-  options.push({
-    kind: 'SWEEP',
-    label: `Move ₹${sweepAmount.toLocaleString('en-IN')} to this account`,
-    amount: sweepAmount,
-    penaltyAvoided,
-    savedMandates: shortfall.atRisk,
-    resultingCurve: sweepCurve
-  });
+  // Only offer it if it genuinely clears the dip. An intervention that leaves
+  // the user short is worse than no intervention.
+  const sweepRemaining = findShortfalls(sweepCurve, mandates);
+  if (sweepRemaining.length === 0 || sweepRemaining[0]!.date.getTime() > shortfall.date.getTime()) {
+    options.push({
+      kind: 'SWEEP',
+      label: `Move ₹${sweepAmount.toLocaleString('en-IN')} to this account`,
+      amount: sweepAmount,
+      penaltyAvoided,
+      savedMandates: shortfall.atRisk,
+      resultingCurve: sweepCurve
+    });
+  }
 
   // 2. PAUSE - Look for candidate mandates firing on or before the shortfall date,
   // prioritizing LOW priority mandates (like OTT) over CRITICAL ones (like SIP/EMI).
@@ -101,7 +122,7 @@ export function proposeInterventions(
 
   for (const candidate of rankedCandidates) {
     if (candidate.amount >= shortfall.deficit) {
-      const pauseCurve = projectWithPaused(ledger, mandates, income, now, [candidate.id]);
+      const pauseCurve = projectWithPaused(ledger, mandates, income, now, [candidate.id], days);
       
       // Verify pause actually clears the shortfall
       const remainingShortfalls = findShortfalls(pauseCurve, mandates);

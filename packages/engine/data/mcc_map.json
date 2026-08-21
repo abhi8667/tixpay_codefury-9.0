@@ -1,10 +1,12 @@
 {
+  "0000": "Uncategorised",
   "3000": "Airlines",
   "4121": "Taxi & Rideshare",
   "4722": "Travel Agencies",
   "4899": "Streaming & Cable",
   "4900": "Utilities",
   "5411": "Grocery & Supermarkets",
+  "5499": "General Retail",
   "5541": "Fuel",
   "5691": "Clothing & Apparel",
   "5732": "Electronics",
@@ -16,6 +18,5 @@
   "6540": "Wallet Load",
   "7011": "Hotels",
   "8220": "Education",
-  "9311": "Tax Payments",
-  "0000": "Uncategorised"
+  "9311": "Tax Payments"
 }

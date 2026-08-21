@@ -99,7 +99,8 @@ export function runPipeline(
 
   const shortfalls = findShortfalls(curve, mandates);
   const interventions = shortfalls.flatMap((s) =>
-    proposeInterventions(s, mandates, ledger, income, now)
+    // Pass the curve length so every resultingCurve matches what A is rendering.
+    proposeInterventions(s, mandates, ledger, income, now, { days })
   );
 
   const banks = [...new Set(txns.map((t) => t.bank))].sort();

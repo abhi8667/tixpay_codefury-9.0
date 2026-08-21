@@ -132,6 +132,32 @@ export function projectBalance(
   return curve;
 }
 
+/**
+ * Re-project with money moved in at `now`. The core of every SWEEP intervention.
+ *
+ * The sweep is injected as a certain income event rather than by editing the
+ * ledger, so it shows up as a labelled marker on Person A's curve instead of
+ * silently shifting the whole line.
+ */
+export function projectWithSweep(
+  ledger: ShadowLedger,
+  mandates: Mandate[],
+  income: IncomeEvent[],
+  now: Date,
+  sweepAmount: number,
+  days = 30,
+  options: ProjectOptions = {},
+): BalanceCurve {
+  const sweep: IncomeEvent = {
+    amount: sweepAmount,
+    date: startOfIstDay(now),
+    confidence: 1, // the user is doing it themselves — this one is certain
+    label: 'Money moved in',
+    kind: 'SWEEP',
+  };
+  return projectBalance(ledger, mandates, [...income, sweep], now, days, options);
+}
+
 /** Re-project with one mandate paused. The core of every PAUSE intervention. */
 export function projectWithPaused(
   ledger: ShadowLedger,

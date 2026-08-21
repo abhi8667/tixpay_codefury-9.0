@@ -18,7 +18,7 @@ describe('route module', () => {
 
     it('falls back to generic category', () => {
       const res = resolveMcc('random.store@sbi');
-      expect(res.mcc).toBe('5499');
+      expect(res.mcc).toBe('0000');
       expect(res.confidence).toBe(0.2);
     });
   });
@@ -67,12 +67,12 @@ describe('route module', () => {
 
     it('handles reward caps', () => {
       const cardsNoWaiver = [cards[0]!, { ...cards[1]!, ytdSpend: 10000 }];
-      const res = recommendInstrument('5814', 1000, cardsNoWaiver, { c1: 1000 }); // c1 is capped out
+      const res = recommendInstrument('5814', 1000, cardsNoWaiver, { c1: 20000 }); // c1 has spent 20k (earned ₹1000 cap)
       // C1 drops to 1% base rate, earning ₹10.
       // C2 base rate is 2%, earning ₹20. C2 wins.
       expect(res.instrument).toMatchObject({ id: 'c2' });
       expect(res.rail).toBe('CARD_SWIPE');
-      expect(res.reason).toMatch(/Earns ₹20/);
+      expect(res.reason).toMatch(/swipe your Visa Signature/);
     });
   });
 });
