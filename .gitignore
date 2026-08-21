@@ -2,6 +2,9 @@ node_modules/
 dist/
 .DS_Store
 *.log
+.expo/
+.expo-shared/
+web-build/
 
 # Real inbox dump — never commit, contains personal SMS
 packages/engine/fixtures/real_inbox.json
