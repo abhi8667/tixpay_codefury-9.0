@@ -207,6 +207,42 @@ interface AppState {
 
 **Ask B for `runPipeline(inbox, now)` early.** A single convenience function lets you wire the entire chain at hour 4, before the individual pieces are done. Then B's improvements flow through automatically with no integration work.
 
+### 6b. Onboarding state + the skip toggle
+
+```ts
+interface OnboardingState {
+  step: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+  profile: { name?: string; mobile?: string };
+  linkedAccount?: MockAccount;
+  addedCardIds: string[];
+  complete: boolean;
+}
+```
+
+Persist `complete` to mmkv so the app doesn't re-onboard on every launch.
+
+**Build `__DEV_skipOnboarding()` in the same commit as the state machine.** It sets `complete: true`, links a mock account, adds three cards. You will reset and re-run this demo forty times during rehearsal and sitting through KYC each time will cost you more than the toggle takes to write.
+
+Nothing in onboarding is validated. Any OTP passes, any PIN passes, nothing is stored. A has a `SIMULATED` label on the PIN screen — verify it's there before the demo.
+
+### 6c. Camera permission
+
+`expo-camera` needs `CAMERA` in the manifest — add it to your config plugin alongside the SMS permissions, in the same commit. Request at first scan, not on mount.
+
+**Test QR scanning under bad lighting**, because venue lighting will be bad. A has a manual-VPA fallback; make sure it's reachable in one tap from the scanner.
+
+Print two or three UPI QR codes on paper and bring them. Do not rely on pulling one up on a second phone screen on stage — glare will beat you.
+
+### 6d. Payment write — closes the loop
+
+```ts
+confirmPayment: (intent: PaymentIntent, instrument: string) => void
+```
+
+On confirm, append a synthetic `Transaction` (`source: 'INTENT'`) to the store, then let everything re-derive. **The curve must visibly move afterwards** — that's demo beat 8 and the strongest technical proof you have.
+
+Because payments are simulated, no bank SMS follows, so there's no double-counting. Skip dedupe. If asked, it's on the roadmap: *"reconcile intent records against bank SMS."*
+
 ---
 
 ## 7. Simulator wiring
@@ -277,24 +313,35 @@ Test it on the actual projector before you need it. Rehearse the cable routing �
 
 ## 11. Demo script — you drive
 
-| # | Beat | Say |
-|---|---|---|
-| 1 | Mandate Hub, real inbox | *"This is my actual phone."* — **pause 5 seconds, let it land** |
-| 2 | Tap a mandate | *"Found from six messages. No bank login, no integration."* |
-| 3 | Switch to seeded | *"Switching to a simulated month so you can see the failure case."* |
-| 4 | Calendar, curve dips red | *"Their SIP fails here. NACH bounce charge, ₹250, plus a missed investment."* |
-| 5 | Tap the dip | — |
-| 6 | Tap "Pause Netflix" | Curve flattens green, haptic. *"₹250 avoided. One tap."* |
-| 7 | Simulator → checkout, ₹8,000 at Croma | *"Don't use UPI. Swipe the Amex — you're ₹4,000 from your fee waiver."* |
-| 8 | Constraints slide | Own them out loud, before anyone asks |
+**Pre-stage:** onboarding already completed, airplane mode on, redaction on, printed QR codes in hand.
 
-Beat 3 matters. **Announce the switch to simulated data.** Judges respect it, and being caught mid-demo pretending synthetic data is real is unrecoverable.
+| # | Beat | Say | Time |
+|---|---|---|---|
+| 1 | Onboarding, flicked through fast | *"Normal UPI onboarding — KYC, PIN, link account. Skipping ahead."* | 10s |
+| 2 | Home. Alert strip already populated. | *"The moment it has SMS access, it knows things."* | 5s |
+| 3 | Mandates tab | *"This is my actual phone. Eight recurring debits. No bank login, no integration."* — **pause 5 seconds** | 15s |
+| 4 | Tap a mandate | *"Found from six messages."* | 5s |
+| 5 | Switch to seeded → Calendar, red dip | *"Switching to a simulated month for the failure case. Their SIP fails here — NACH bounce, ₹250."* | 15s |
+| 6 | **Scan & Pay → scan the printed QR** → ₹8,000 | *"Now watch what happens before I pay."* | 15s |
+| 7 | **Verdict sheet fires** | *"Caught it. This pulls the shortfall from the 12th to the 9th — and it says use the Amex, I'm ₹4,000 from a fee waiver."* | 20s |
+| 8 | Tap **Pay anyway** → curve sags, shortfall moves | *"And it re-projects live."* | 10s |
+| 9 | Tap the dip → **Pause Netflix** → green | *"₹250 avoided. One tap."* | 15s |
+| 10 | Constraints slide | Own them out loud, before anyone asks. | 20s |
+
+Beat 5 matters. **Announce the switch to simulated data.** Judges respect it, and being caught mid-demo pretending synthetic data is real is unrecoverable.
+
+Beat 7 is the headline. Beat 8 is the technical proof — it shows a live loop, not a static chart. If you're over time, cut beats 1 and 4, never 7 or 8.
+
+**Rehearse the QR scan specifically.** It's the only beat with a physical dependency and the only one that can fail for reasons unrelated to your code.
 
 ---
 
 ## 12. Answers to have ready
 
+- **"Did money actually move?"** — **"No. This is a concept build, nothing touches a real rail."** Flat, immediate, no hedging. Hedging here costs more than the honest answer.
+- **"So how would payment work?"** — Standard UPI deep-link intent handoff, the same mechanism every merchant app uses. TiXPay builds the intent, GPay authenticates, TiXPay gets a result callback. We stubbed *only* the handoff — the MCC resolution, the projection, the recommendation and the ledger write are all real.
 - **"Can you actually pause a UPI mandate?"** — No. Not without being a licensed PSP. We show the intervention; execution requires a PSP partnership. On the roadmap slide.
+- **"Is that a real QR?"** — Yes. UPI QRs are deep links carrying payee, amount and merchant category as plain text. That parse is genuine.
 - **"How do you know the balance?"** — We don't. It's a shadow ledger inferred from SMS and reconciled against stated balances. Our drift is ₹X. *(Get the real number from B.)*
 - **"READ_SMS is restricted on Play Store."** — Correct, for non-default-SMS apps. Production path is the RBI Account Aggregator framework or an on-device notification listener. SMS is the zero-integration prototype.
 - **"Why not just use the bank's app?"** — Banks show one account's mandates. This is cross-bank, cross-instrument, and forward-looking. No bank shows you a projected balance curve against your own debits.

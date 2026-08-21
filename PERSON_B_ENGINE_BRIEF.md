@@ -273,6 +273,80 @@ Evaluate in this order:
 
 ---
 
+## 8b. `evaluate/` — pre-payment intercept (your headline function)
+
+This is now the most important thing you build. It runs *before* the user confirms a payment and it's the beat the whole demo is built around.
+
+```ts
+export function evaluatePayment(
+  intent: PaymentIntent, ledger: ShadowLedger, mandates: Mandate[],
+  income: IncomeEvent[], cards: Card[], now: Date
+): PaymentVerdict
+```
+
+**Good news: no new maths.** It composes what you've already built:
+
+1. `resolveMcc(intent.vpa, intent.mcc)`
+2. Clone the ledger, apply this payment as a hypothetical debit at `now`
+3. `projectBalance` on the hypothetical
+4. `findShortfalls` — did this payment **create** a shortfall, or **pull an existing one earlier**?
+5. `recommendInstrument` for the resolved MCC
+6. Assemble the verdict
+
+```ts
+type VerdictLevel = 'CLEAR' | 'ADVISORY' | 'WARNING';
+
+interface PaymentVerdict {
+  level: VerdictLevel;
+  newShortfall?: Shortfall;
+  shiftedShortfall?: { from: Date; to: Date };
+  atRisk: Mandate[];
+  recommendation?: Recommendation;
+  headline: string;   // 'This leaves you ₹3,200 short on 9 March'
+  subline?: string;   // 'Your ₹5,000 SIP will bounce · ₹250 charge'
+}
+```
+
+**Level rules:**
+
+| Level | When |
+|---|---|
+| `WARNING` | Creates or worsens a shortfall hitting a `CRITICAL`/`HIGH` mandate |
+| `ADVISORY` | No shortfall, but a materially better instrument exists |
+| `CLEAR` | Neither |
+
+**The `shiftedShortfall` case is the one that impresses.** "This payment moves your shortfall from the 12th to the 9th" is a sharper insight than "you'll be short" — it shows the system is modelling time, not just comparing a balance to an amount. Make sure you detect it.
+
+**Hard budget: under 100ms.** It sits between the Pay tap and the sheet appearing. Reuse the memoised ledger C hands you. Never re-parse SMS inside this function.
+
+**`headline` and `subline` are rendered verbatim on stage.** Write them as sentences a person would say. `'This leaves you ₹3,200 short on 9 March'`, not `'deficit: 3200, date: 2026-03-09'`.
+
+---
+
+## 8c. `parseUpiDeepLink` — real, not simulated
+
+```ts
+export function parseUpiDeepLink(url: string): PaymentIntent | null
+```
+
+UPI QR codes are deep links with plain query params, so Person A's camera can scan a genuine shop QR and you parse real merchant data:
+
+```
+upi://pay?pa=merchant@ybl&pn=Croma&am=8000&mc=5732&tr=XYZ&cu=INR
+```
+
+| Param | Field | Note |
+|---|---|---|
+| `pa` | `vpa` | required — return `null` without it |
+| `pn` | `payeeName` | URL-decoded |
+| `am` | `amount` | often absent on static QRs — A prompts for it |
+| `mc` | `mcc` | **when present, `resolveMcc` confidence is 1.0** |
+| `tr` | — | merchant's ref; we generate our own |
+
+Be liberal: handle `upi://`, `upi:`, and intent URLs. Tolerate unknown params. Return `null` rather than throwing on anything malformed — a judge will scan a random QR to test you.
+
+---
+
 ## 9. Static data — author this in hour 1
 
 `data/cards.json` — 8–10 cards. Mix of RuPay (UPI-linkable) and Visa/Amex (swipe-only). Include at least one card that is **capped out** and one that is **near its fee waiver** — those two produce the interesting recommendations.
@@ -312,14 +386,18 @@ Must produce:
 | Hour | Do |
 |---|---|
 | 0–1 | Repo, workspace, vitest, **`sms_cases.json` fixtures first**, `data/*.json` |
-| 1–2 | `generate.ts` → `demo_inbox.json` |
+| 1–2 | `generate.ts` → `demo_inbox.json`; `parseUpiDeepLink` (20 min, unblocks A's scanner) |
 | 2–3 | `parseSms` registry → run against C's real-inbox dump, report coverage |
 | 3–7 | `detectMandates` + categorisation |
-| 7–12 | `buildLedger`, `inferIncomeEvents`, `projectBalance` |
-| 12–16 | `findShortfalls`, `proposeInterventions`, precomputed curves |
-| 16–19 | `recommendInstrument`, `classifyFailure` |
+| 7–11 | `buildLedger`, `inferIncomeEvents`, `projectBalance` |
+| 11–14 | `findShortfalls`, `proposeInterventions`, precomputed curves |
+| 14–16 | `recommendInstrument` |
+| 16–18 | **`evaluatePayment`** — composes the above, headline feature |
+| 18–19 | `classifyFailure` (cheap — cut first if behind) |
 | 19–21 | Bug support for C's integration |
 | 21+ | Freeze |
+
+Get `parseUpiDeepLink` out early even though it's trivial — A's camera screen is blocked without it, and it's 20 minutes of work.
 
 ---
 

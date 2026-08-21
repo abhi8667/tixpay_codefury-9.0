@@ -8,20 +8,27 @@
 
 We are building an **on-device, zero-integration cash-flow guard for UPI users**. It reads the phone's SMS inbox, discovers recurring auto-debits without any bank API, projects a forward balance curve, and warns the user *before* a debit bounces — then offers one-tap interventions.
 
-**The demo moment we are optimising for:** a balance curve dips below zero on day 12. User taps the dip. Sheet offers "Pause Netflix ₹649 → your ₹5,000 SIP survives." One tap. Curve re-animates flat and green. `₹250 penalty avoided`.
+The app presents as a **full UPI client** — onboarding, KYC, PIN setup, QR scan, pay — with the guard layer woven in at the moment of payment.
 
-Everything in this document serves that 8-second moment.
+**The two demo moments we are optimising for:**
+
+1. **Pre-payment intercept (headline).** User scans a QR for ₹8,000. Before confirming, TiXPay interrupts: *"This leaves you ₹3,200 short on the 9th — your ₹5,000 SIP will bounce"* and, in the same sheet, *"Pay with your Amex instead — you're ₹4,000 from the fee waiver."* Prevention at the point of decision, not analysis afterwards.
+2. **Bounce Guard resolution.** Balance curve dips below zero on day 12. Tap the dip. *"Pause Netflix ₹649 → your ₹5,000 SIP survives."* One tap, curve re-animates green, `₹250 penalty avoided`.
+
+Everything in this document serves those two moments.
 
 ### What is IN
 
 | # | Feature | Logic | UI | Wiring |
 |---|---|---|---|---|
-| 1 | Mandate Hub (SMS → recurring debits) | B | A | C |
-| 2 | Cash-Flow Calendar (forward balance curve) | B | A | C |
-| 3 | Bounce Guard (shortfall + interventions) | B | A | C |
-| 4 | Cause Attribution Engine | B | A | C |
-| 5 | Card / instrument router | B | A | C |
-| 6 | UPI simulator (demo harness) | B | A | C |
+| 0 | UPI client shell (onboarding, KYC, PIN, home, scan, pay) | — | A | C |
+| 1 | **Pre-payment intercept** (`evaluatePayment`) | B | A | C |
+| 2 | Mandate Hub (SMS → recurring debits) | B | A | C |
+| 3 | Cash-Flow Calendar (forward balance curve) | B | A | C |
+| 4 | Bounce Guard (shortfall + interventions) | B | A | C |
+| 5 | Cause Attribution Engine | B | A (badge only) | C |
+| 6 | Card / instrument router | B | A | C |
+| 7 | Simulator controls (demo harness) | — | A | C |
 
 Roles in full at §10. The column split *is* the architecture: B never imports React, A never imports the engine, C owns the seam.
 
@@ -48,7 +55,32 @@ The UPI deep-link spec carries an `mc` field, but small merchants' static QRs of
 ### 1.4 The ₹250–500 bounce penalty is NACH/EMI, not UPI Autopay
 A failed UPI Autopay for an OTT subscription usually costs the user nothing but a service pause. The real money is in **EMIs and NACH-registered SIPs**. Anchor the loss story there; OTT auto-pause is the *lever*, not the loss.
 
-### 1.5 READ_SMS is Play-Store restricted
+### 1.5 We cannot move money — payments are simulated
+TiXPay is not a PSP, has no UPI handle, and cannot debit anything. The app *presents* as a UPI client for the concept demo; the actual debit is stubbed.
+
+**This is not a weakness if you frame it correctly.** In production, payment initiation is a standard UPI deep-link intent handoff — the same mechanism every merchant app uses:
+
+```
+upi://pay?pa=merchant@ybl&pn=Croma&am=8000&mc=5732&tr=TP12345&cu=INR
+```
+
+TiXPay builds the intent, GPay/PhonePe authenticates, TiXPay receives a result callback. What we've stubbed is **only the handoff**. Everything before it (MCC resolution, shortfall projection, card recommendation) and everything after it (ledger write, re-projection) is real.
+
+Stage line: *"The handoff to GPay is stubbed. It's a standard UPI intent — documented, buildable, needs a PSP relationship. What's not stubbed is everything around it."*
+
+If asked directly *"did money move?"* — **"No. This is a concept build, nothing touches a real rail."** Do not hedge.
+
+**Benefit of simulating:** no bank SMS arrives afterwards, so there's no double-counting between the intent record and the SMS record. Skip dedupe entirely. Roadmap slide: *"reconcile intent records against bank SMS."*
+
+### 1.6 The UPI PIN screen is theatre — build it safely
+Onboarding includes a PIN-setup screen for realism. It must be **obviously non-functional**:
+- Any 4 digits are accepted
+- Nothing is stored, hashed, or validated
+- A visible `SIMULATED — no real PIN` label on the screen
+
+Never build UI that trains a person to type their real UPI PIN into a non-PSP app. This is the one place in the project where "make it look real" is the wrong instinct.
+
+### 1.7 READ_SMS is Play-Store restricted
 For non-default-SMS apps. Slide line: *"Production path is the RBI Account Aggregator framework or an on-device notification listener. SMS is the zero-integration prototype."* Judges reward knowing your own constraints.
 
 ---
@@ -67,6 +99,7 @@ tixpay/
 │   │   ├─ guard/                   # BalanceCurve → Intervention[]
 │   │   ├─ attribute/               # failed txn → cause
 │   │   ├─ route/                   # merchant + cards → Recommendation
+│   │   ├─ evaluate/                # pre-payment intercept (evaluatePayment)
 │   │   └─ types.ts
 │   ├─ data/
 │   │   ├─ cards.json
@@ -82,10 +115,12 @@ tixpay/
 │   └─ test/                        # vitest
 └─ apps/mobile/                     # Expo dev client → the APK
     ├─ app/                         # expo-router
-    │   ├─ (tabs)/calendar.tsx
-    │   ├─ (tabs)/mandates.tsx
-    │   ├─ (tabs)/settings.tsx
-    │   └─ (tabs)/simulator.tsx     # hidden tab
+    │   ├─ (tabs)/index.tsx         # Home
+    │   ├─ (tabs)/calendar.tsx      # Cash-Flow Calendar
+    │   ├─ (tabs)/mandates.tsx      # Mandate Hub
+    │   ├─ (tabs)/cards.tsx         # Cards progress
+    │   ├─ (tabs)/settings.tsx      # Settings & Simulator
+    │   └─ pay/                     # Scan & Pay modal stack
     ├─ components/
     ├─ store/                       # zustand
     └─ native/                      # SMS bridge + config plugin
@@ -108,6 +143,7 @@ Monorepo via **pnpm workspaces**. Do not over-engineer this — two packages, on
 | Persistence | `react-native-mmkv` | Sync reads, no async ceremony |
 | Styling | `nativewind` v4 | Tailwind classes |
 | SMS | `react-native-get-sms-android` + Expo config plugin | Highest-risk dependency — prove it in hour 2 |
+| Camera | `expo-camera` | For scanning QR codes |
 | Notifications | `expo-notifications` | Local only |
 | Haptics | `expo-haptics` | Free polish on intervention tap |
 
@@ -308,7 +344,65 @@ recommendInstrument(mcc: string, amount: number, cards: Card[],
 
 Logic order: filter by `mccExclusions` → check `monthlyRewardCap` headroom → check `feeWaiverThreshold` proximity → compute effective ₹ value → rank. If the winner is not `upiLinkable`, set `rail: 'CARD_SWIPE'` and say so explicitly in `reason`.
 
-### 5.7 Static data
+### 5.7 `evaluate/` — pre-payment intercept (NEW, headline feature)
+
+```ts
+evaluatePayment(intent: PaymentIntent, ledger: ShadowLedger, mandates: Mandate[],
+                 income: IncomeEvent[], cards: Card[], now: Date): PaymentVerdict
+```
+
+Runs **before** the user confirms a payment. Composes existing pieces — no new maths:
+
+1. Resolve MCC from the intent's `mc` field, or fall back to VPA heuristics
+2. Clone the ledger, apply this payment as a hypothetical debit at `now`
+3. Re-run `projectBalance` on the hypothetical
+4. Run `findShortfalls` — **did this payment create a shortfall, or move an existing one earlier?**
+5. Run `recommendInstrument` for the resolved MCC
+6. Assemble a verdict
+
+```ts
+type VerdictLevel = 'CLEAR' | 'ADVISORY' | 'WARNING';
+
+interface PaymentVerdict {
+  level: VerdictLevel;
+  newShortfall?: Shortfall;      // created by this payment
+  shiftedShortfall?: {           // existing shortfall pulled earlier
+    from: Date; to: Date;
+  };
+  atRisk: Mandate[];
+  recommendation?: Recommendation;
+  headline: string;              // 'This leaves you ₹3,200 short on the 9th'
+  subline?: string;              // 'Your ₹5,000 SIP will bounce'
+}
+```
+
+**Level rules:**
+- `WARNING` — payment creates or worsens a shortfall affecting a `CRITICAL`/`HIGH` mandate. Red sheet, requires a deliberate confirm.
+- `ADVISORY` — no shortfall, but a better instrument exists. Amber banner, non-blocking.
+- `CLEAR` — proceed, show nothing beyond a subtle confidence tick.
+
+**Must return in under 100ms.** It sits between tapping Pay and seeing the sheet. Reuse the memoised ledger; do not re-parse SMS.
+
+### 5.8 `PaymentIntent` and post-payment ledger write
+
+```ts
+interface PaymentIntent {
+  vpa: string;          // pa
+  payeeName: string;    // pn
+  amount: number;       // am
+  mcc?: string;         // mc — present on many real QRs
+  txnRef: string;       // tr — we generate 'TP' + nanoid
+  source: 'QR' | 'MANUAL' | 'CONTACT';
+}
+
+parseUpiDeepLink(url: string): PaymentIntent | null
+```
+
+`parseUpiDeepLink` is **real, not simulated** — `expo-camera` reads an actual merchant QR and UPI deep links carry these as plain query params. Scanning a real shop QR on stage is an authentic moment; protect it.
+
+On confirm, C appends a synthetic `Transaction` to the store (`source: 'INTENT'`), the ledger re-derives, and the curve morphs. **This closes the loop and is the second-best demo beat available** — pay ₹8,000, watch the shortfall move from the 12th to the 9th in real time.
+
+### 5.9 Static data
 
 Hand-authored, ~200 lines total.
 
@@ -391,7 +485,39 @@ Pitch line: *nothing leaves the device; the app makes no network calls.* Already
 
 ## 7. UI specification
 
-Three screens matter. Everything else is a stub.
+### 7.0 Navigation map — the app presents as a UPI client
+
+```
+ONBOARDING (one-time, skippable via dev toggle)
+  1. Splash / value prop
+  2. Mobile number + fake OTP (any 6 digits)
+  3. KYC — name, PAN field, "Verifying…" spinner → ✓ Verified
+  4. Bank discovery — "Found 2 accounts" (mock list), select one
+  5. UPI PIN setup — SIMULATED label, any 4 digits
+  6. Add cards — pick 2–3 from cards.json
+  7. SMS permission request  ← the real one
+  8. "Analysing your inbox…" → lands on Home
+
+MAIN APP (tabs)
+  🏠 Home        — balance, Scan & Pay CTA, mini curve, alert strip
+  📅 Calendar    — the 30-day curve  (§7.1)
+  🔁 Mandates    — Mandate Hub       (§7.3)
+  💳 Cards       — added cards, MTD spend, cap/waiver progress
+  ⚙️  Settings    — inbox mode, redaction, [Simulator]
+
+PAYMENT FLOW (modal stack, from Home)
+  Scan QR (expo-camera) ─or─ Enter VPA manually
+    ↓ parseUpiDeepLink
+  Confirm screen — payee, amount, instrument selector
+    ↓ evaluatePayment  ← THE HEADLINE MOMENT
+  Verdict sheet (§7.2b) — warning / advisory / clear
+    ↓ user confirms
+  PIN entry (simulated) → Success → ledger writes → curve moves
+```
+
+**Onboarding budget: 90 minutes, hard cap.** It's pure theatre with zero logic. It buys the "this is a real UPI app" framing and nothing else. Judges do not score KYC screens.
+
+**A dev toggle that jumps straight to an active account is mandatory**, not optional. You will reset and re-run this demo forty times during rehearsal.
 
 ### 7.1 Calendar (the hero screen)
 
@@ -407,6 +533,37 @@ Three screens matter. Everything else is a stub.
 - Each shows `₹250 penalty avoided` prominently
 - One tap → sheet dismisses, curve re-animates to `resultingCurve`, haptic fires, dip turns green
 - **This is the demo.** Budget real time here.
+
+### 7.2b Payment Verdict Sheet (headline screen)
+
+Renders a `PaymentVerdict`. Three visual states.
+
+**`WARNING`** — red accent, blocking:
+```
+⚠  Hold on
+
+   ₹8,000 to Croma
+
+   This leaves you ₹3,200 short on 9 March
+   Your ₹5,000 SIP will bounce  ·  ₹250 charge
+
+   ┌────────────────────────────────────┐
+   │ 💳 Pay with Amex instead           │
+   │    Keeps your balance intact       │
+   │    + ₹4,000 to your fee waiver     │
+   └────────────────────────────────────┘
+
+   [ Use Amex ]        [ Pay anyway ]
+```
+
+**`ADVISORY`** — amber, non-blocking banner above the confirm button:
+```
+💳 Pay with Amex — ₹4,000 to your fee waiver
+```
+
+**`CLEAR`** — a small green tick near the amount. Nothing else. Most payments must feel frictionless or the product is just nagware.
+
+**"Pay anyway" must always be present and must always work.** A guard that blocks you is a guard you uninstall. Judges will test this.
 
 ### 7.3 Mandate Hub
 
@@ -464,6 +621,7 @@ eas build -p android --profile preview --local
 
 - **Cash-Flow Calendar** — 30-day interactive SVG balance curve, `d3-shape` + `react-native-svg`, shortfall dips filled red
 - **Intervention Bottom Sheet** — `@gorhom/bottom-sheet`, penalty-avoidance stats, 1-tap resolution options
+- **Payment Verdict Sheet** — pre-payment warning / advisory / clear modal
 - **Mandate Hub** — discovered auto-debit list, confidence badges, "found from X SMS" provenance
 - **Simulator UI** — control dashboard: World Clock slider, SMS injector buttons, fake GPay checkout
 - **Redaction layer** *(§6.5)* — render-path masking of VPAs and account tails; consumes B's `isFinancial` flag
@@ -480,6 +638,8 @@ eas build -p android --profile preview --local
 - **`projectBalance`** — daily running balance `B_t` against upcoming mandates and inferred income events
 - **`findShortfalls`** + **`proposeInterventions`** — detect dips, rank by priority, precompute resulting curves
 - **`recommendInstrument`** — VPA/MCC → card, subject to exclusions, caps and waiver thresholds
+- **`evaluatePayment`** — pre-payment intercept checking hypothetical impact and card arbitrage
+- **`parseUpiDeepLink`** — parse QR and UPI deep link URLs
 - **`classifyFailure`** — Cause Attribution: liquidity shortfall vs intentional cancellation
 - **`generate.ts`** — synthetic SMS corpus (400+ messages, deterministic seed) — B owns this because B needs the fixtures at hour 0
 
@@ -511,12 +671,12 @@ The split only works if the interface holds. Three rules:
 | Hour | A — UI | B — Engine | C — Integration |
 |---|---|---|---|
 | 0–1 | Design tokens, screen skeletons | Repo, workspace, vitest, `sms_cases.json` fixtures **first** | **`types.ts` + `mocks.ts` committed** |
-| 1–2 | Mandate Hub layout vs mocks | `generate.ts` synthetic corpus | Expo dev client + SMS plugin — **prove a real read works** |
+| 1–2 | Mandate Hub layout vs mocks | `generate.ts` synthetic corpus; `parseUpiDeepLink` | Expo dev client + SMS & Camera plugin — **prove a real read works** |
 | 2–3 | Confidence badges, provenance expand | `parseSms` registry | Dump real inbox → `measure.ts` → **report the 3 numbers** |
 | 3–7 | Balance curve SVG + reanimated | `detectMandates` | Zustand store, `InboxSource` swap, mmkv |
-| 7–12 | Intervention sheet, re-animation | Shadow ledger, income inference, `projectBalance` | **Debug APK builds & installs (hour-6 gate)**, wire Hub to engine |
-| 12–16 | Simulator dashboard UI, checkout screen | `findShortfalls`, `proposeInterventions` | World Clock → `now` plumbing, scenario presets |
-| 16–19 | **Redaction layer**, empty states, polish | `recommendInstrument`, `classifyFailure` | SMS injector wiring, `scrcpy` setup |
+| 7–11 | Intervention sheet, re-animation | Shadow ledger, income inference, `projectBalance` | **Debug APK builds & installs (hour-6 gate)**, wire Hub to engine |
+| 11–16 | Onboarding, Home, Payment Flow & Verdict Sheet | `findShortfalls`, `proposeInterventions`, `recommendInstrument` | World Clock → `now` plumbing, scenario presets |
+| 16–19 | **Redaction layer**, empty states, polish | `evaluatePayment`, `classifyFailure` | SMS injector wiring, `scrcpy` setup |
 | 19–21 | Bug support | Bug support | Slides, screenshots, README |
 | 21–23 | **Feature freeze.** Final APK. Load onto demo device. | | |
 | 23–24 | **Rehearse twice, end to end, on the projector.** | | |
@@ -529,16 +689,26 @@ The split only works if the interface holds. Three rules:
 
 ---
 
-## 11. Demo script (90 seconds)
+## 11. Demo script (~2 minutes)
 
-1. *"This is my actual phone."* Open Mandate Hub. Eight recurring debits, discovered from SMS, no bank login. **(5s pause. Let it land.)**
-2. Tap one → provenance: found from 6 messages.
-3. *"Switching to a simulated month so you can see the failure case."* → Calendar. Curve dips red on the 12th.
-4. *"₹5,000 SIP fails here. NACH bounce charge: ₹250, plus a missed investment."*
-5. Tap the dip. Sheet: **Pause Netflix ₹649 → SIP survives.**
-6. One tap. Curve flattens green. Haptic. `₹250 avoided`.
-7. Simulator tab → fake checkout, ₹8,000 at Croma → *"Don't use UPI. Swipe the Amex — you're ₹4,000 from your fee waiver."*
-8. Constraints slide. Own them out loud.
+**Pre-stage:** app installed, onboarding already completed, airplane mode on, redaction on, printed QR codes in hand.
+
+| # | Beat | Say | Time |
+|---|---|---|---|
+| 1 | Onboarding, **fast-forwarded** — flick through KYC / PIN / bank link | *"Normal UPI onboarding — KYC, PIN, link account. Skipping ahead."* | 10s |
+| 2 | Home screen. Real inbox. Alert strip already showing. | *"The moment it has SMS access, it knows things."* | 5s |
+| 3 | Mandates tab — 8 auto-debits | *"This is my actual phone. Eight recurring debits, no bank login, no integration."* **Pause 5 seconds.** | 15s |
+| 4 | Tap one → provenance | *"Found from six messages."* | 5s |
+| 5 | *"Switching to a simulated month so you can see the failure case."* → Calendar, red dip on the 12th | *"Their SIP fails here. NACH bounce, ₹250, plus a missed investment."* | 15s |
+| 6 | **Scan & Pay → scan the printed QR** → ₹8,000 | *"Now watch what happens before I pay."* | 15s |
+| 7 | **Verdict sheet fires** | *"Caught it. This pulls the shortfall from the 12th to the 9th — and it says use the Amex, I'm ₹4,000 from a fee waiver."* | 20s |
+| 8 | Tap **Pay anyway** → curve visibly sags, shortfall moves to the 9th | *"And it re-projects live."* | 10s |
+| 9 | Tap the dip → **Pause Netflix ₹649** → curve flattens green | *"₹250 avoided. One tap."* | 15s |
+| 10 | Constraints slide | Own them out loud, before anyone asks. | 20s |
+
+**Beat 5 matters.** Announce the switch to simulated data. Being caught mid-demo presenting synthetic data as real is unrecoverable.
+
+**Beat 8 is the strongest technical proof** — it shows the system is a live loop, not a static chart.
 
 ---
 

@@ -8,11 +8,13 @@ You own everything the judges see. You are not blocked by anyone after hour 1.
 
 ## 0. Your one job
 
-There is a single moment this entire app exists to deliver:
+The app presents as a **full UPI client** — onboarding, KYC, PIN, QR scan, pay — with the guard layer woven in. Two moments must be flawless:
 
-> A balance curve dips below zero on day 12. The user taps the dip. A sheet offers *"Pause Netflix ₹649 → your ₹5,000 SIP survives."* One tap. The curve re-animates flat and green. `₹250 penalty avoided`.
+> **1. The intercept.** User scans a QR for ₹8,000. Before confirming, a sheet fires: *"This leaves you ₹3,200 short on the 9th — your ₹5,000 SIP will bounce"* plus *"Pay with your Amex instead — ₹4,000 to your fee waiver."*
+>
+> **2. The resolution.** Curve dips red on day 12. Tap the dip. *"Pause Netflix ₹649 → your SIP survives."* One tap, curve morphs green, `₹250 avoided`.
 
-Budget your time so that this is the most polished 8 seconds in the room. Everything else can be rough.
+Everything else — onboarding, home, cards, settings — is scaffolding that makes those two feel real. Build the scaffolding fast and plainly. Spend your polish here.
 
 ---
 
@@ -85,6 +87,101 @@ caption: { fontSize: 12, fontWeight: '500', color: t.textDim },
 ```
 
 Build a `<Rupee amount={n} />` component in hour 1 and use it everywhere. Indian grouping (`en-IN` gives `₹1,23,456`) matters for authenticity with these judges.
+
+---
+
+## 2b. Onboarding — 90 minutes, hard cap
+
+Pure theatre, zero logic. It buys the "this is a real UPI app" framing and nothing else. Judges do not score KYC screens. Build it plainly, get out.
+
+| # | Screen | Content |
+|---|---|---|
+| 1 | Splash | Logo, one-line value prop, `Get started` |
+| 2 | Mobile | Number field, fake OTP — **any 6 digits pass** |
+| 3 | KYC | Name, PAN field, `Verifying…` spinner 1.5s → ✓ Verified |
+| 4 | Bank discovery | "Found 2 accounts" — mock list, tap to select |
+| 5 | UPI PIN | 4-dot entry — **see safety note below** |
+| 6 | Add cards | Multi-select 2–3 from `cards.json` |
+| 7 | SMS permission | ← the one real thing. Behind a button, never on mount. |
+| 8 | Analysing | Progress animation over "Reading inbox → Finding mandates → Projecting" |
+
+**Safety — non-negotiable.** The PIN screen must be obviously non-functional:
+- Any 4 digits accepted, nothing stored, nothing validated
+- Visible label on screen: `SIMULATED — this is not a real UPI PIN`
+
+Never build UI that trains someone to type a real UPI PIN into a non-PSP app. This is the one place where "make it look real" is the wrong instinct.
+
+**Build a dev toggle that skips to an active account.** Mandatory, not optional. You'll reset this demo forty times during rehearsal.
+
+Screen 8 is the only one worth any polish — a progress animation naming the three engine stages is a free explanation of what the product does.
+
+---
+
+## 2c. Home screen
+
+The UPI-app surface. Top to bottom:
+
+1. **Balance card** — inferred balance, `display` size, small `inferred` caption
+2. **Alert strip** — if a shortfall exists in the next 30 days: `⚠ ₹3,200 short on 12 Mar · 2 debits at risk` → taps through to Calendar. If clear, an emerald `All clear for 30 days`.
+3. **Scan & Pay** — big primary CTA
+4. **Mini curve** — 30-day sparkline, tappable → Calendar
+5. **Recent activity** — last 5 transactions
+
+The alert strip is doing the work here. It's the first thing on screen after onboarding and it proves the app knew something the moment it got SMS access.
+
+---
+
+## 2d. Payment flow
+
+Modal stack from Home. Four steps.
+
+### Scan
+
+`expo-camera` with barcode scanning. **This is real, not simulated** — UPI QR codes are deep links carrying `pa`, `pn`, `am`, `mc` as plain query params, so you can scan an actual shop QR on stage and parse genuine merchant data. Protect this moment.
+
+Include a `Enter VPA manually` fallback — venue lighting will be bad.
+
+### Confirm
+
+Payee name, VPA, amount field (editable if the QR had no `am`), instrument selector showing the added cards + bank account. `Pay` button.
+
+### Verdict sheet — your headline screen
+
+Renders a `PaymentVerdict` from Person B. Three states:
+
+**`WARNING`** — red accent, blocking:
+```
+⚠  Hold on
+
+   ₹8,000 to Croma
+
+   This leaves you ₹3,200 short on 9 March
+   Your ₹5,000 SIP will bounce · ₹250 charge
+
+   ┌──────────────────────────────────┐
+   │ 💳 Pay with Amex instead         │
+   │    Keeps your balance intact     │
+   │    + ₹4,000 to your fee waiver   │
+   └──────────────────────────────────┘
+
+   [ Use Amex ]        [ Pay anyway ]
+```
+
+**`ADVISORY`** — amber banner above the confirm button, non-blocking:
+```
+💳 Pay with Amex — ₹4,000 to your fee waiver
+```
+
+**`CLEAR`** — a small green tick near the amount. Nothing else.
+
+Three rules:
+- **`Pay anyway` is always present and always works.** A guard that blocks you is a guard you uninstall — and a judge will absolutely test this.
+- **`CLEAR` must be near-invisible.** Most payments should feel frictionless or the product is nagware.
+- Sheet must appear in under ~150ms after Pay. B's `evaluatePayment` returns in under 100ms; don't add an artificial delay for drama.
+
+### Success
+
+Simulated PIN entry (same fake component as onboarding) → checkmark → dismiss to Home. **Then the curve must visibly change.** Store writes the transaction, everything re-derives. If the user goes to Calendar, the shortfall has moved. That's the proof the loop is live.
 
 ---
 
@@ -269,15 +366,20 @@ Ship with redaction **ON** by default. Toggle in Settings.
 
 | Hour | Do |
 |---|---|
-| 0–1 | Tokens file, `<Rupee>`, fonts, screen skeletons, tab shell |
-| 1–2 | Mandate Hub layout against `mocks.ts` |
-| 2–3 | Confidence badges, provenance row, expand interaction |
-| 3–7 | **Balance curve.** SVG layers, scales, entry animation |
-| 7–12 | Intervention sheet, tap → morph animation, haptics |
-| 12–16 | Simulator dashboard, fake checkout, recommendation banner |
-| 16–19 | **Redaction layer**, empty states, loading states, polish pass |
+| 0–1 | Tokens, `<Rupee>`, fonts, tab shell, screen skeletons |
+| 1–2 | Mandate Hub against `mocks.ts` — badges, provenance |
+| 2–4 | **Balance curve** — SVG layers, scales, entry animation |
+| 4–7 | Curve scrubber + intervention sheet + morph animation |
+| 7–9 | **Onboarding, all 8 screens.** Timebox hard. Dev skip toggle. |
+| 9–10 | Home screen — balance card, alert strip, mini curve |
+| 10–13 | **Payment flow** — scan, confirm, **verdict sheet**, success |
+| 13–15 | Cards screen (MTD spend, cap/waiver progress bars) |
+| 15–17 | Simulator dashboard — utilitarian, legible from 3m |
+| 17–19 | **Redaction layer**, empty states, loading states, polish |
 | 19–21 | Bug support for C's integration |
 | 21+ | Freeze |
+
+**If you fall behind, cut in this order:** Cards screen → simulator polish → onboarding screens 3 and 4 → recent activity on Home. Never cut the verdict sheet or the curve morph.
 
 ---
 
