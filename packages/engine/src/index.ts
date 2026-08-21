@@ -13,3 +13,7 @@ export * from './parse';
 export * from './detect';
 export * from './project';
 export * from './pipeline';
+export * from './guard';
+export * from './attribute';
+export * from './route';
+export * from './evaluate';
