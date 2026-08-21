@@ -71,47 +71,56 @@ export function proposeInterventions(
 
   // 1. SWEEP - Move deficit + buffer in from elsewhere. Round up to nearest 500.
   const sweepAmount = Math.ceil((shortfall.deficit + 500) / 500) * 500;
-  
-  // Hypothetically, SWEEP means we add a positive injection at the shortfall date.
-  // We can simulate it by creating a fake income event or pretending it's there.
-  // But for the curve, sweeping on `now` is the realistic option.
   const sweepCurve = projectWithPaused(ledger, mandates, income, now, [], sweepAmount);
 
-  // Calculate penalties avoided (all atRisk mandates are saved by the sweep)
   let penaltyAvoided = 0;
   for (const m of shortfall.atRisk) penaltyAvoided += PENALTY[m.category];
 
   options.push({
     kind: 'SWEEP',
-    label: `Move ₹${sweepAmount} to this account`,
+    label: `Move ₹${sweepAmount.toLocaleString('en-IN')} to this account`,
     amount: sweepAmount,
     penaltyAvoided,
     savedMandates: shortfall.atRisk,
     resultingCurve: sweepCurve
   });
 
-  // 2. PAUSE - Pause lowest priority at-risk mandate if it clears the deficit.
-  const rankedRisk = rankByPriority(shortfall.atRisk);
-  const lowestPrio = rankedRisk[rankedRisk.length - 1];
+  // 2. PAUSE - Look for candidate mandates firing on or before the shortfall date,
+  // prioritizing LOW priority mandates (like OTT) over CRITICAL ones (like SIP/EMI).
+  const candidatesBeforeShortfall = mandates.filter(
+    m => !m.isPaused && m.nextDebit.getTime() <= shortfall.date.getTime()
+  );
 
-  if (lowestPrio && lowestPrio.amount >= shortfall.deficit) {
-    const pauseCurve = projectWithPaused(ledger, mandates, income, now, [lowestPrio.id]);
-    
-    // Check if pause actually clears the deficit (i.e. no point below 500)
-    // Wait, pausing clears this mandate, so penalty avoided is all OTHER mandates that were at risk.
-    // Actually, if we pause it, we avoid the penalty on the higher priority ones.
-    const pauseSaved = shortfall.atRisk.filter(m => m.id !== lowestPrio.id);
-    let pausePenaltyAvoided = pauseSaved.reduce((sum, m) => sum + PENALTY[m.category], 0);
+  // Sort candidates: lowest priority first (OTT > UTILITY > INSURANCE > SIP > EMI), then by amount
+  const rankedCandidates = [...candidatesBeforeShortfall].sort((a, b) => {
+    const rankA = PRIORITY_ORDER.indexOf(a.priority);
+    const rankB = PRIORITY_ORDER.indexOf(b.priority);
+    if (rankA !== rankB) return rankB - rankA; // Reverse order: lowest priority first!
+    return a.amount - b.amount;
+  });
 
-    options.push({
-      kind: 'PAUSE',
-      label: `Pause ${lowestPrio.displayName} ₹${lowestPrio.amount}`,
-      target: lowestPrio,
-      amount: lowestPrio.amount,
-      penaltyAvoided: pausePenaltyAvoided,
-      savedMandates: pauseSaved,
-      resultingCurve: pauseCurve
-    });
+  for (const candidate of rankedCandidates) {
+    if (candidate.amount >= shortfall.deficit) {
+      const pauseCurve = projectWithPaused(ledger, mandates, income, now, [candidate.id]);
+      
+      // Verify pause actually clears the shortfall
+      const remainingShortfalls = findShortfalls(pauseCurve, mandates);
+      if (remainingShortfalls.length === 0 || remainingShortfalls[0]!.date.getTime() > shortfall.date.getTime()) {
+        const savedMandates = shortfall.atRisk.filter(m => m.id !== candidate.id);
+        const pausePenaltyAvoided = savedMandates.reduce((sum, m) => sum + PENALTY[m.category], 0);
+
+        options.push({
+          kind: 'PAUSE',
+          label: `Pause ${candidate.displayName} ₹${candidate.amount.toLocaleString('en-IN')}`,
+          target: candidate,
+          amount: candidate.amount,
+          penaltyAvoided: pausePenaltyAvoided,
+          savedMandates,
+          resultingCurve: pauseCurve
+        });
+        break; // Found the optimal pause candidate
+      }
+    }
   }
 
   // Sort by penalty avoided (descending)

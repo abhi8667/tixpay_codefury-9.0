@@ -3,10 +3,10 @@ import { findShortfalls, proposeInterventions, rankByPriority } from '../src/gua
 import type { BalanceCurve, Mandate, ShadowLedger } from '../src/types';
 
 describe('guard module', () => {
-  const dummyMandate = (id: string, priority: any, amount: number): Mandate => ({
+  const dummyMandate = (id: string, priority: any, amount: number, time = 1000): Mandate => ({
     id, priority, amount,
     normalizedVpa: id, displayName: id, cadence: 'MONTHLY',
-    dayOfMonth: 1, nextDebit: new Date(), confidence: 1,
+    dayOfMonth: 1, nextDebit: new Date(time), confidence: 1,
     occurrences: 3, sourceTxnIds: [], category: 'OTHER', isPaused: false
   });
 
@@ -43,15 +43,25 @@ describe('guard module', () => {
 
   describe('proposeInterventions', () => {
     it('generates sweep and pause options', () => {
-      const m1 = dummyMandate('m1', 'LOW', 800);
+      const shortfallDate = new Date(2000);
+      const now = new Date(0);
+
+      const m1 = dummyMandate('m1', 'LOW', 800, 1000);
       m1.category = 'OTT';
-      const m2 = dummyMandate('m2', 'CRITICAL', 2000);
+      const m2 = dummyMandate('m2', 'CRITICAL', 2000, 1500);
       m2.category = 'SIP';
 
-      const shortfall = { date: new Date(), deficit: 600, atRisk: [m1, m2] };
-      const ledger: ShadowLedger = { txns: [], currentBalance: 0, drift: 0, balanceAt: () => 0 };
+      const shortfall = { date: shortfallDate, deficit: 600, atRisk: [m1, m2] };
+      const ledger: ShadowLedger = {
+        txns: [{
+          id: 't0', direction: 'CREDIT', amount: 0, bank: 'HDFC', 
+          timestamp: now, isFailure: false, balanceHint: 2700, 
+          raw: { address: '', body: '', date: 0 }
+        }],
+        currentBalance: 2700, drift: 0, balanceAt: () => 2700
+      };
 
-      const options = proposeInterventions(shortfall, [m1, m2], ledger, [], new Date());
+      const options = proposeInterventions(shortfall, [m1, m2], ledger, [], now);
       
       // Should propose SWEEP and PAUSE (because m1 is LOW priority and its amount > deficit)
       expect(options.length).toBeGreaterThanOrEqual(2);

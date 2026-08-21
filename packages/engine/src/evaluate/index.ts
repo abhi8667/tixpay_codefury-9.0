@@ -3,7 +3,7 @@ import { resolveMcc, recommendInstrument } from '../route';
 import { findShortfalls } from '../guard';
 import { projectBalance } from '../project/curve';
 import { withTransaction } from '../project/ledger';
-import { istDayKey } from '../time';
+import { formatIstDate, istDayKey } from '../time';
 
 /**
  * Headline feature: intercepts a payment before confirmation, evaluates its
@@ -50,7 +50,7 @@ export function evaluatePayment(
   let headline = 'Clear to pay.';
   let subline: string | undefined;
 
-  const getEarliest = (s: Shortfall[]) => s.sort((a, b) => a.date.getTime() - b.date.getTime())[0];
+  const getEarliest = (s: Shortfall[]) => [...s].sort((a, b) => a.date.getTime() - b.date.getTime())[0];
   const origEarliest = getEarliest(originalShortfalls);
   const hypoEarliest = getEarliest(hypotheticalShortfalls);
 
@@ -59,7 +59,7 @@ export function evaluatePayment(
       newShortfall = hypoEarliest;
       atRisk = hypoEarliest.atRisk;
       level = 'WARNING';
-      const dateStr = hypoEarliest.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
+      const dateStr = formatIstDate(hypoEarliest.date);
       headline = `This leaves you ₹${hypoEarliest.deficit.toLocaleString('en-IN')} short on ${dateStr}.`;
       
       const critical = atRisk.find(m => m.priority === 'CRITICAL' || m.priority === 'HIGH');
@@ -75,13 +75,26 @@ export function evaluatePayment(
         atRisk = hypoEarliest.atRisk;
         level = 'WARNING';
         
-        const fromStr = origEarliest.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
-        const toStr = hypoEarliest.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
+        const fromStr = formatIstDate(origEarliest.date);
+        const toStr = formatIstDate(hypoEarliest.date);
         headline = `This moves your shortfall from ${fromStr} to ${toStr}.`;
         
         const critical = atRisk.find(m => m.priority === 'CRITICAL' || m.priority === 'HIGH');
         if (critical) {
           subline = `Your ₹${critical.amount.toLocaleString('en-IN')} ${critical.displayName} will bounce earlier.`;
+        }
+      } else if (hypoEarliest.deficit > origEarliest.deficit + 10) {
+        // Same day or later, but deepens an existing shortfall
+        newShortfall = hypoEarliest;
+        atRisk = hypoEarliest.atRisk;
+        level = 'WARNING';
+        
+        const dateStr = formatIstDate(hypoEarliest.date);
+        headline = `This deepens your shortfall on ${dateStr} to ₹${hypoEarliest.deficit.toLocaleString('en-IN')}.`;
+        
+        const critical = atRisk.find(m => m.priority === 'CRITICAL' || m.priority === 'HIGH');
+        if (critical) {
+          subline = `Your ₹${critical.amount.toLocaleString('en-IN')} ${critical.displayName} is at risk.`;
         }
       }
     }
