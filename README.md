@@ -28,6 +28,71 @@ TiXPay is an on-device, zero-integration cash-flow guard for UPI users. It reads
 
 ---
 
+## ⚡ How to Run
+
+### 1. Prerequisites & Installation
+Ensure Node.js (v18+) and `pnpm` are installed. From the workspace root:
+
+```bash
+pnpm install
+```
+
+---
+
+### 2. Running the React Native Mobile App (Expo Metro)
+
+To launch the Metro bundler and open the mobile app in your browser or Expo Go:
+
+```bash
+# Start Metro Dev Server
+pnpm --filter tixpay-mobile start
+
+# Or launch directly in Web Preview
+pnpm --filter tixpay-mobile web
+```
+
+---
+
+### 3. Building & Running Native Android App (Device / Android Studio)
+
+To compile the native Android Debug APK and install it directly onto a connected physical Android device or emulator:
+
+#### **A. Clean & Build Debug APK**
+```powershell
+# Navigate to native android directory
+cd apps/mobile/android
+
+# Clean build cache
+./gradlew clean
+
+# Compile Native Debug APK
+./gradlew app:assembleDebug --console=plain
+```
+
+#### **B. Install APK to Connected Device (via ADB)**
+```powershell
+# Install the generated APK onto connected Android device
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+---
+
+### 4. Running Engine Tests & Live Pitch Harness
+
+```bash
+# Run TypeScript Typecheck across all workspace packages
+pnpm --filter tixpay-mobile typecheck
+pnpm --filter @tixpay/engine typecheck
+
+# Run Full Vitest Test Suite (253 tests across 15 test files)
+pnpm --filter @tixpay/engine test
+
+# Run Automated Live Pitch Demo Script
+pnpm --filter @tixpay/engine exec tsx scripts/use_case_demo.ts
+```
+
+---
+
 ## 📁 Repository Structure
 
 ```
@@ -47,34 +112,16 @@ tixpay/
 │       ├── fixtures/           # Hand-labelled SMS cases & 468-message demo corpus
 │       ├── scripts/            # Synthetic inbox generator & use-case pitch demo script
 │       └── test/               # Vitest test suite (15 test files, 253 passing tests)
+├── apps/
+│   └── mobile/                 # React Native + Expo Mobile Client App
+│       ├── src/
+│       │   ├── screens/        # Insights, MandateHub, PayScreen, ShortfallSheet, Simulator
+│       │   └── components/     # Header, BottomTabBar, DevSkipToggle
+│       └── store/              # Central Zustand App Store (useAppStore)
 ├── TIXPAY_BUILD_SPEC.md        # Master 24h hackathon build specification
 ├── PERSON_A_UI_BRIEF.md        # Person A (UI & Visual Lead) brief
 ├── PERSON_B_ENGINE_BRIEF.md    # Person B (Feature Logic & Engine Lead) brief
 └── PERSON_C_INTEGRATION_BRIEF.md # Person C (Integration & Bridge Lead) brief
-```
-
----
-
-## ⚡ Quick Start & Verification
-
-### Install Dependencies
-```bash
-pnpm install
-```
-
-### Run Engine Typecheck
-```bash
-pnpm --filter @tixpay/engine typecheck
-```
-
-### Run Engine Vitest Test Suite (253 tests)
-```bash
-pnpm --filter @tixpay/engine test
-```
-
-### Run Automated Live Pitch Demo Script
-```bash
-pnpm --filter @tixpay/engine exec tsx scripts/use_case_demo.ts
 ```
 
 ---
