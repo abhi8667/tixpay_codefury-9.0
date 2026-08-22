@@ -178,35 +178,35 @@ export const mockResolvedCurveShiftElectricity: BalanceCurve = mockCurve.map((pt
 export const mockShortfall: Shortfall = {
   date: new Date('2026-03-12T00:00:00.000Z'),
   deficit: 3200,
-  atRisk: [mockMandates[0], mockMandates[4]], // SIP ₹5,000 + BESCOM Electricity ₹1,150
+  atRisk: [mockMandates[0]!, mockMandates[4]!], // SIP ₹5,000 + BESCOM Electricity ₹1,150
 };
 
 export const mockInterventions: Intervention[] = [
   {
     kind: 'PAUSE',
     label: 'Pause Netflix ₹649',
-    target: mockMandates[1],
+    target: mockMandates[1]!,
     amount: 649,
     penaltyAvoided: 250,
-    savedMandates: [mockMandates[0]],
+    savedMandates: [mockMandates[0]!],
     resultingCurve: mockResolvedCurvePauseNetflix,
   },
   {
     kind: 'SHIFT',
     label: 'Delay BigBasket by 3 days',
-    target: mockMandates[2],
+    target: mockMandates[2]!,
     amount: 1200,
     penaltyAvoided: 250,
-    savedMandates: [mockMandates[0]],
+    savedMandates: [mockMandates[0]!],
     resultingCurve: mockResolvedCurveShiftBigBasket,
   },
   {
     kind: 'SHIFT',
     label: 'Move Electricity Bill to Mar 15',
-    target: mockMandates[4],
+    target: mockMandates[4]!,
     amount: 1150,
     penaltyAvoided: 250,
-    savedMandates: [mockMandates[0]],
+    savedMandates: [mockMandates[0]!],
     resultingCurve: mockResolvedCurveShiftElectricity,
   },
 ];
@@ -235,7 +235,7 @@ export const mockCards: Card[] = [
 ];
 
 export const mockRecommendation: Recommendation = {
-  instrument: mockCards[0],
+  instrument: mockCards[0]!,
   rail: 'CARD_SWIPE',
   reason: "Pay with your Amex instead — you're ₹4,000 from your fee waiver",
   valueDelta: 1500,

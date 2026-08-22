@@ -14,33 +14,42 @@
  *      function calls `new Date()`.
  */
 
-// ─── SMS & transactions ──────────────────────────────────────────────────────
+// ─── Transactions ────────────────────────────────────────────────────────────
 
 export type Direction = 'DEBIT' | 'CREDIT';
 
-export type BankCode = 'HDFC' | 'SBI' | 'ICICI' | 'KOTAK' | 'AXIS' | 'PNB';
+/** 'OTHER' covers a statement whose bank we could not infer from the preamble. */
+export type BankCode = 'HDFC' | 'SBI' | 'ICICI' | 'KOTAK' | 'AXIS' | 'PNB' | 'OTHER';
 
-export interface RawSms {
-  address: string; // 'AD-HDFCBK'
-  body: string;
-  date: number; // epoch ms
-}
+/**
+ * Where a transaction came from.
+ *
+ *   STATEMENT — a row of a bank statement the user uploaded. The only real
+ *               ingestion path; everything the app shows traces back to one.
+ *   INTENT    — our own simulated payment, applied locally so the user can see
+ *               what a payment would do. Never leaves the device.
+ */
+export type TransactionSource = 'STATEMENT' | 'INTENT';
 
 export interface Transaction {
   id: string;
   direction: Direction;
   amount: number; // rupees
-  vpa?: string; // 'swiggy@ybl'
-  merchantHint?: string; // free text from SMS
-  accountTail?: string; // '4471'
-  balanceHint?: number; // if SMS stated 'Avl Bal'
+  /**
+   * Counterparty grouping key. A real VPA ('swiggy@ybl') when the statement
+   * narration carries one, otherwise a key synthesised from the merchant words
+   * — see extractCounterparty. Recurring-debit detection buckets on this.
+   */
+  vpa?: string;
+  /** The statement narration, verbatim. Drives categorisation and provenance. */
+  merchantHint?: string;
+  accountTail?: string; // '4471' — last four only; we never retain the full number
+  balanceHint?: number; // the running balance the statement stated on this row
   refNo?: string;
   bank: BankCode;
   timestamp: Date;
-  isFailure: boolean; // 'could not be processed' / 'insufficient'
-  raw: RawSms;
-  /** Set when the txn came from our own payment intent, not from a bank SMS. */
-  source?: 'SMS' | 'INTENT';
+  isFailure: boolean; // narration says returned / reversed / dishonoured
+  source?: TransactionSource;
 }
 
 // ─── Mandates ────────────────────────────────────────────────────────────────
@@ -60,7 +69,7 @@ export interface Mandate {
   dayOfMonth: number; // or dayOfWeek for WEEKLY
   nextDebit: Date;
   confidence: number; // 0–1
-  occurrences: number; // provenance: 'found from 6 SMS'
+  occurrences: number; // provenance: 'found from 6 statement rows'
   sourceTxnIds: string[];
   priority: Priority;
   category: Category;
@@ -101,18 +110,19 @@ export interface ShadowLedger {
   txns: Transaction[];
   /** Inferred balance as of the most recent transaction. */
   currentBalance: number;
-  /** |inferred − stated| at the last SMS that carried a balance hint. */
+  /** |inferred − stated| at the last row that carried a balance. Zero on a
+   *  statement with a running-balance column, which is the normal case. */
   drift: number;
   /** Timestamp of the last balance hint we snapped to, if any. */
   lastReconciledAt?: Date;
   /** The account this ledger reconciles. Other accounts and cards are excluded. */
   accountTail?: string;
-  /** How many SMS stated a balance we could snap to. */
+  /** How many rows stated a balance we could snap to. */
   reconciliations?: number;
   /** Worst and average |inferred − stated| across all snaps. Pitch material. */
   maxDrift?: number;
   meanDrift?: number;
-  /** Epoch ms of every balance-stating SMS. Used to judge whether a balance
+  /** Epoch ms of every balance-stating row. Used to judge whether a balance
    *  near a given date is trustworthy — see hasReliableBalanceAt. */
   hintTimestamps?: number[];
   /**

@@ -4,9 +4,14 @@
   "version": "0.0.0",
   "scripts": {
     "test": "pnpm --filter @tixpay/engine test",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "start": "pnpm --filter tixpay-mobile start",
+    "web": "pnpm --filter tixpay-mobile web",
+    "android": "pnpm --filter tixpay-mobile android"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }

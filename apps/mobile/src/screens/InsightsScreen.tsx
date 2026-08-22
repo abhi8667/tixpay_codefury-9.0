@@ -3,20 +3,22 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-nati
 import { t, typography, space, radius } from '../theme';
 import { Rupee } from '../components/Rupee';
 import { BalanceCurve } from '../components/BalanceCurve';
-import { useAppStore } from '../../store/useAppStore';
+import { useAppStore, KEEPER_GOAL } from '../../store/useAppStore';
+import { formatIstDate, PENALTY } from '@tixpay/engine';
+import type { Shortfall } from '@tixpay/types';
 
 interface InsightsScreenProps {
-  onTapDip: () => void;
-  isResolved?: boolean;
+  onTapDip: (shortfall: Shortfall) => void;
   onOpenKeeper?: () => void;
   onOpenMandates?: () => void;
+  onOpenPay?: () => void;
 }
 
 export const InsightsScreen: React.FC<InsightsScreenProps> = ({
   onTapDip,
-  isResolved = false,
   onOpenKeeper,
   onOpenMandates,
+  onOpenPay,
 }) => {
   const curve = useAppStore((state) => state.curve());
   const mandates = useAppStore((state) => state.mandates());
@@ -24,15 +26,47 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
   const ledger = useAppStore((state) => state.ledger());
   const pausedMandateIds = useAppStore((state) => state.pausedMandateIds);
   const redactionOn = useAppStore((state) => state.redactionOn);
+  const keeperBalance = useAppStore((state) => state.keeperBalance);
+  const keeperProgress = useAppStore((state) => state.keeperProgress());
 
   const activeShortfall = shortfalls.length > 0 ? shortfalls[0] : undefined;
   // Green means the projection genuinely cleared, not that a button was
-  // pressed. `isResolved` is still accepted as a prop for the caller's
-  // optimistic animation, but it can no longer manufacture a safe curve.
+  // pressed. There is no override: the only way to this state is a curve that
+  // actually stays above the buffer.
   const isBackInSafeZone = !activeShortfall;
 
-  const currentBalance = ledger?.currentBalance ?? (curve[0]?.balance ?? 12450);
-  const safeSpendAmount = isBackInSafeZone ? 3499 : 2850;
+  const currentBalance = ledger?.currentBalance ?? curve[0]?.balance ?? 0;
+
+  /**
+   * Safe to spend: the most you could pay today without pushing any day in the
+   * projection below the ₹500 buffer.
+   *
+   * This used to be a hardcoded ₹3,499. It is the number a user is most likely
+   * to act on, so inventing it was the worst possible thing to fake — it is
+   * simply the lowest point the curve reaches, less the buffer.
+   */
+  const lowestProjected = curve.length > 0 ? Math.min(...curve.map((p) => p.balance)) : 0;
+  const safeSpendAmount = Math.max(0, Math.floor(lowestProjected - 500));
+
+  /** The day the projection bottoms out — what 'safe to spend' is measured to. */
+  const lowestPoint = curve.reduce(
+    (low, p) => (p.balance < low.balance ? p : low),
+    curve[0] ?? { balance: 0, date: new Date(), events: [] },
+  );
+
+  /**
+   * Rupees of bounce penalty currently on the line.
+   *
+   * Uses the engine's PENALTY table rather than a guess: OTT is deliberately
+   * ₹0 there — a failed Netflix autopay costs a service pause, not a fee — and
+   * a utility bounce is ₹100, not ₹250. Approximating it here reported ₹750
+   * where the real exposure was ₹350, which is the kind of number a judge
+   * checks against the sheet on the next screen.
+   */
+  const penaltyAtRisk = shortfalls.reduce(
+    (sum, sf) => sum + sf.atRisk.reduce((s2, m) => s2 + PENALTY[m.category], 0),
+    0,
+  );
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
@@ -58,10 +92,9 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
           />
         </View>
 
-        <TouchableOpacity style={styles.safeSpendPill} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.safeSpendPill} activeOpacity={0.8} onPress={onOpenPay}>
           <Text style={styles.safeSpendLabel}>Safe to spend </Text>
           <Rupee amount={safeSpendAmount} style={styles.safeSpendValue} showPrefix={false} />
-          {isBackInSafeZone && <Text style={styles.deltaGreen}> +₹649</Text>}
           <Text style={styles.safeSpendArrow}> ›</Text>
         </TouchableOpacity>
       </View>
@@ -70,7 +103,7 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
       <BalanceCurve
         curve={curve}
         shortfall={activeShortfall}
-        onDipPress={onTapDip}
+        onDipPress={() => activeShortfall && onTapDip(activeShortfall)}
         isResolved={isBackInSafeZone}
       />
 
@@ -81,8 +114,10 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
             <Text style={styles.checkIcon}>✓</Text>
           </View>
           <View>
-            <Text style={styles.resolvedTitle}>You're back in the safe zone!</Text>
-            <Text style={styles.resolvedSub}>₹250 penalty avoided</Text>
+            <Text style={styles.resolvedTitle}>You're in the safe zone</Text>
+            <Text style={styles.resolvedSub}>
+              No projected shortfall in the next 30 days
+            </Text>
           </View>
         </View>
       )}
@@ -120,7 +155,7 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
               <View style={styles.mandateMetaRow}>
                 <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
                 <Text style={[styles.mandateDate, isPaused && styles.pausedBadge]}>
-                  {isPaused ? 'PAUSED' : `Mar ${m.dayOfMonth}`}
+                  {isPaused ? 'PAUSED' : formatIstDate(m.nextDebit)}
                 </Text>
               </View>
             </View>
@@ -136,9 +171,11 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
           </View>
           <Text style={styles.gridLabel}>Bounce Risk</Text>
           <Text style={styles.gridValueYellow}>
-            {isBackInSafeZone ? 'None' : activeShortfall ? 'High' : 'Low'}
+            {isBackInSafeZone ? 'None' : `₹${penaltyAtRisk.toLocaleString('en-IN')}`}
           </Text>
-          <Text style={styles.gridSub}>Next 7 days</Text>
+          <Text style={styles.gridSub}>
+            {isBackInSafeZone ? 'Next 30 days' : 'In bounce penalties'}
+          </Text>
         </View>
 
         <View style={[styles.gridCard, styles.safeSpendCard]}>
@@ -147,7 +184,9 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
           </View>
           <Text style={styles.gridLabel}>Safe to Spend</Text>
           <Rupee amount={safeSpendAmount} style={styles.gridValueGreen} showPrefix={false} />
-          <Text style={styles.gridSub}>Until Mar 17</Text>
+          <Text style={styles.gridSub}>
+            {curve.length > 0 ? `Lowest on ${formatIstDate(lowestPoint.date)}` : '—'}
+          </Text>
         </View>
       </View>
 
@@ -158,14 +197,16 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
         </View>
         <View style={styles.keeperInfo}>
           <Text style={styles.keeperTitle}>Keeper</Text>
-          <Text style={styles.keeperSub}>Saving toward ₹50,000</Text>
-          <Rupee amount={currentBalance} style={styles.keeperAmount} showPrefix={false} />
+          <Text style={styles.keeperSub}>
+            Saving toward ₹{KEEPER_GOAL.toLocaleString('en-IN')}
+          </Text>
+          <Rupee amount={keeperBalance} style={styles.keeperAmount} showPrefix={false} />
 
           <View style={styles.progressTrack}>
-            <View style={[styles.progressBar, { width: '24.9%' }]} />
+            <View style={[styles.progressBar, { width: `${Math.round(keeperProgress * 100)}%` }]} />
           </View>
         </View>
-        <Text style={styles.keeperPct}>24.9% of goal ›</Text>
+        <Text style={styles.keeperPct}>{Math.round(keeperProgress * 100)}% of goal ›</Text>
       </TouchableOpacity>
     </ScrollView>
   );

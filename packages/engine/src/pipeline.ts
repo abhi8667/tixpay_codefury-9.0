@@ -1,7 +1,7 @@
 import type {
-  BalanceCurve, IncomeEvent, Intervention, Mandate, RawSms, ShadowLedger, Shortfall, Transaction,
+  BalanceCurve, IncomeEvent, Intervention, Mandate, ShadowLedger, Shortfall, Transaction,
 } from './types';
-import { parseSms } from './parse/sms';
+import { parseStatementCsv, type StatementMeta, type StatementParseOptions } from './parse/statement';
 import { detectMandates } from './detect/mandates';
 import { buildLedger, type BuildLedgerOptions } from './project/ledger';
 import { inferIncomeEvents } from './project/income';
@@ -11,10 +11,15 @@ import { findShortfalls, proposeInterventions } from './guard';
 /**
  * The single entry point.
  *
- * Person C calls this and binds the result into Zustand. Everything downstream —
+ * The store calls this and binds the result into Zustand. Everything downstream —
  * Mandate Hub, Cash-Flow Calendar, Home alert strip — reads off one object, so
  * integration is one selector rather than five call sites that can disagree
  * about which `now` they were given.
+ *
+ * Source-agnostic by design: it takes transactions, not a file. Ingestion is a
+ * single adapter at the edge (`parseStatementCsv`), so the analytical core has
+ * no idea where the rows came from and never changes when a new import format
+ * is added.
  *
  * Pure. Takes `now`; the World Clock moves the whole world by passing a
  * different one.
@@ -32,13 +37,13 @@ export interface PipelineOptions extends ProjectOptions, BuildLedgerOptions {
 }
 
 export interface PipelineStats {
-  /** Messages handed in. */
+  /** Transactions handed in, before account scoping. */
   messages: number;
-  /** Messages that produced a Transaction. */
+  /** Transactions on the reconciled account. */
   parsed: number;
-  /** parsed / messages. Includes noise, so this is a floor, not the parse rate. */
+  /** parsed / messages — the share of the file belonging to this account. */
   parseRate: number;
-  /** Distinct bank entity codes seen. */
+  /** Distinct banks seen. */
   banks: string[];
   /** The account the ledger reconciles. */
   accountTail: string | undefined;
@@ -63,20 +68,14 @@ export interface PipelineResult {
   stats: PipelineStats;
 }
 
-/** SMS inbox → everything the app renders. */
+/** Transactions → everything the app renders. */
 export function runPipeline(
-  inbox: RawSms[],
+  txns: Transaction[],
   now: Date,
   options: PipelineOptions = {},
 ): PipelineResult {
   const days = options.days ?? 30;
   const minConfidence = options.minMandateConfidence ?? MIN_PROJECT_CONFIDENCE;
-
-  const txns: Transaction[] = [];
-  for (const raw of inbox) {
-    const t = parseSms(raw);
-    if (t) txns.push(t);
-  }
 
   const ledgerOptions: BuildLedgerOptions = {};
   if (options.accountTail) ledgerOptions.accountTail = options.accountTail;
@@ -114,9 +113,9 @@ export function runPipeline(
     shortfalls,
     interventions,
     stats: {
-      messages: inbox.length,
-      parsed: txns.length,
-      parseRate: inbox.length ? Math.round((txns.length / inbox.length) * 1000) / 1000 : 0,
+      messages: txns.length,
+      parsed: ledger.txns.length,
+      parseRate: txns.length ? Math.round((ledger.txns.length / txns.length) * 1000) / 1000 : 0,
       banks,
       accountTail: ledger.accountTail,
       mandatesDetected: detected.length,
@@ -126,4 +125,30 @@ export function runPipeline(
       reconciliations: ledger.reconciliations ?? 0,
     },
   };
+}
+
+// ─── Statement convenience path ──────────────────────────────────────────────
+
+export interface StatementPipelineResult extends PipelineResult {
+  meta: StatementMeta;
+}
+
+/**
+ * Statement file → everything the app renders.
+ *
+ * The path the import screen uses: one call from picked file to rendered curve.
+ * `meta` carries the import receipt — rows read, columns bound, rows skipped —
+ * which the UI shows so the user can check our work instead of trusting it.
+ */
+export function runPipelineFromStatement(
+  csv: string,
+  now: Date,
+  options: PipelineOptions & StatementParseOptions = {},
+): StatementPipelineResult {
+  const parseOptions: StatementParseOptions = {};
+  if (options.bank) parseOptions.bank = options.bank;
+  if (options.accountTail) parseOptions.accountTail = options.accountTail;
+
+  const { txns, meta } = parseStatementCsv(csv, parseOptions);
+  return { ...runPipeline(txns, now, options), meta };
 }

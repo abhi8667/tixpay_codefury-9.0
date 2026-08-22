@@ -1,11 +1,13 @@
-import demoInbox from '../fixtures/demo_inbox.json';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import demoExpectations from '../fixtures/demo_expectations.json';
-import { runPipeline } from '../src/pipeline';
+import { runPipelineFromStatement } from '../src/pipeline';
 import { evaluatePayment } from '../src/evaluate';
 import { parseUpiDeepLink } from '../src/parse/deepLink';
 import { projectWithPaused } from '../src/project/curve';
 import { istDayKey } from '../src/time';
-import type { Card, RawSms } from '../src/types';
+import type { Card } from '../src/types';
 
 console.log('------------------------------------------------------------');
 console.log('🚀 TiXPay Use-Case Scenario & Pitch Verification Script');
@@ -15,12 +17,17 @@ const NOW = new Date(demoExpectations.now); // 2026-03-01
 console.log(`📅 Step 1: Initializing App State on ${NOW.toISOString().split('T')[0]}`);
 
 // Step 1: Run Grand Pipeline
-const pipelineResult = runPipeline(demoInbox as RawSms[], NOW);
+const demoCsv = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), '../fixtures/demo_statement.csv'),
+  'utf-8',
+);
+const pipelineResult = runPipelineFromStatement(demoCsv, NOW);
 
-console.log(`\n📊 Inbox Summary:`);
-console.log(`   - Raw SMS Messages Processed: ${pipelineResult.stats.messages}`);
-console.log(`   - Financial Txns Extracted:   ${pipelineResult.stats.parsed} (${(pipelineResult.stats.parseRate * 100).toFixed(1)}% yield)`);
-console.log(`   - Bank Sources Identified:    ${pipelineResult.stats.banks.join(', ')}`);
+console.log(`\n📊 Statement Summary:`);
+console.log(`   - Rows Read:                  ${pipelineResult.meta.parsed} of ${pipelineResult.meta.rows}`);
+console.log(`   - Rows Skipped:               ${pipelineResult.meta.errors.length}`);
+console.log(`   - Bank Identified:            ${pipelineResult.stats.banks.join(', ')}`);
+console.log(`   - Running Balance Column:     ${pipelineResult.meta.hasRunningBalance ? 'yes' : 'no'}`);
 console.log(`   - Account Reconciled:         A/c **${pipelineResult.stats.accountTail}`);
 console.log(`   - Shadow Ledger Balance:      ₹${pipelineResult.ledger.balanceAt(NOW).toLocaleString('en-IN')}`);
 console.log(`   - Shadow Ledger Drift:        ₹${pipelineResult.ledger.drift}`);

@@ -11,9 +11,9 @@ export const redact = {
     if (!isRedactionOn || !v) return v;
     const parts = v.split('@');
     if (parts.length < 2) return v;
-    const handle = parts[0];
-    const domain = parts[1];
-    const maskedHandle = handle.length > 2 ? handle.slice(0, 2) + '****' : handle + '****';
+    const handle = parts[0] ?? '';
+    const domain = parts[1] ?? '';
+    const maskedHandle = handle.length > 2 ? `${handle.slice(0, 2)}****` : `${handle}****`;
     return `${maskedHandle}@${domain}`;
   },
 
@@ -22,9 +22,15 @@ export const redact = {
     return '••' + t.slice(-4);
   },
 
-  smsBody: (body: string): string => {
-    if (!isRedactionOn || !body) return body;
-    // Mask account numbers and phone numbers, keep amounts intact
-    return body.replace(/\b\d{6,16}\b/g, (match) => 'X'.repeat(match.length));
+  /**
+   * A statement narration, with reference and account numbers masked.
+   *
+   * Amounts stay intact on purpose — they are the point of every screen that
+   * renders one, and masking them would make the projector demo unreadable
+   * while protecting nothing. The long digit runs are the identifying part.
+   */
+  narration: (text: string): string => {
+    if (!isRedactionOn || !text) return text;
+    return text.replace(/\b\d{6,16}\b/g, (match) => 'X'.repeat(match.length));
   },
 };

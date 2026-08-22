@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import inbox from '../fixtures/demo_inbox.json';
 import expected from '../fixtures/demo_expectations.json';
-import { entityCode } from '../src/parse/sms';
+import { DEMO_TXNS, DEMO_META } from './_corpus';
+import type { Transaction } from '../src/types';
 
 /**
  * Guards the demo corpus.
@@ -13,35 +13,44 @@ import { entityCode } from '../src/parse/sms';
  * on the projector.
  */
 
-const BANKS = ['HDFCBK', 'SBIINB', 'ICICIB', 'KOTAKB', 'AXISBK', 'PNBSMS'];
+const FAILURE = /return|reversal|insufficient|failed|declined/i;
+const clean = DEMO_TXNS.filter((t) => !t.isFailure);
+const narration = (t: Transaction) => t.merchantHint ?? '';
 
-describe('demo corpus — shape', () => {
-  it('is large enough to look like a real inbox', () => {
-    expect(inbox.length).toBeGreaterThanOrEqual(400);
+describe('demo statement — shape', () => {
+  it('is long enough to look like a real account history', () => {
+    expect(DEMO_TXNS.length).toBeGreaterThanOrEqual(200);
   });
 
-  it('matches the generator manifest', () => {
-    expect(inbox.length).toBe(expected.messageCount);
+  it('parsed every row the file contained', () => {
+    expect(DEMO_META.parsed).toBe(DEMO_META.rows);
+    expect(DEMO_META.errors).toEqual([]);
   });
 
-  it('exercises all six bank parsers', () => {
-    const seen = new Set(inbox.map((m) => entityCode(m.address)));
-    for (const bank of BANKS) expect([...seen], bank).toContain(bank);
+  it('is one account at one bank — which is what a statement is', () => {
+    expect(DEMO_META.accountTail).toBe(expected.primaryAccount);
+    expect(new Set(DEMO_TXNS.map((t) => t.bank)).size).toBe(1);
+  });
+
+  it('states a running balance on every row, so nothing has to be inferred', () => {
+    expect(DEMO_META.hasRunningBalance).toBe(true);
   });
 
   it('is sorted chronologically', () => {
-    for (let i = 1; i < inbox.length; i++) {
-      expect(inbox[i]!.date).toBeGreaterThanOrEqual(inbox[i - 1]!.date);
+    for (let i = 1; i < DEMO_TXNS.length; i++) {
+      expect(DEMO_TXNS[i]!.timestamp.getTime()).toBeGreaterThanOrEqual(
+        DEMO_TXNS[i - 1]!.timestamp.getTime(),
+      );
     }
   });
 
   it('ends before the anchor `now`', () => {
     const now = new Date(expected.now).getTime();
-    expect(inbox.at(-1)!.date).toBeLessThan(now);
+    expect(DEMO_TXNS.at(-1)!.timestamp.getTime()).toBeLessThan(now);
   });
 
   it('spans six months, so every mandate has six occurrences', () => {
-    const months = new Set(inbox.map((m) => new Date(m.date).toISOString().slice(0, 7)));
+    const months = new Set(DEMO_TXNS.map((t) => t.timestamp.toISOString().slice(0, 7)));
     expect(months.size).toBeGreaterThanOrEqual(6);
   });
 });
@@ -60,31 +69,24 @@ describe('demo corpus — the eight mandates', () => {
     expect(cats.filter((c) => c === 'OTT').length).toBeGreaterThanOrEqual(2);
   });
 
-  const FAILURE = /could not be processed|declined|insufficient|failed/i;
-
   it('each debits six times on the primary account', () => {
     for (const m of expected.mandates) {
-      const hits = inbox.filter(
-        (s) =>
-          s.body.includes(m.vpa) &&
-          s.body.includes(`**${expected.primaryAccount}`) &&
-          !FAILURE.test(s.body),
-      );
+      const hits = clean.filter((t) => narration(t).includes(m.vpa));
       expect(hits.length, m.displayName).toBe(m.expectedOccurrences);
     }
   });
 
-  it('historical failures are extra messages, not missing debits', () => {
+  it('historical failures are extra rows, not missing debits', () => {
     // A bounced autopay names the same VPA but is not a successful occurrence.
     // detectMandates must still see six clean debits for each mandate, or the
-    // "found from 6 SMS" provenance line in the demo script is wrong.
+    // "found from 6 statement rows" provenance line in the demo is wrong.
     for (const f of expected.historicalFailures) {
       const mandate = expected.mandates.find((m) => m.vpa === f.vpa);
       if (!mandate) continue;
-      const all = inbox.filter((s) => s.body.includes(f.vpa));
-      const clean = all.filter((s) => !FAILURE.test(s.body));
-      expect(all.length, f.vpa).toBeGreaterThan(clean.length);
-      expect(clean.length, f.vpa).toBe(mandate.expectedOccurrences);
+      const all = DEMO_TXNS.filter((t) => narration(t).includes(f.vpa));
+      const good = all.filter((t) => !t.isFailure);
+      expect(all.length, f.vpa).toBeGreaterThan(good.length);
+      expect(good.length, f.vpa).toBe(mandate.expectedOccurrences);
     }
   });
 
@@ -164,31 +166,42 @@ describe('demo corpus — income and failures', () => {
     expect(expected.historicalFailures.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('every declared failure actually appears in the inbox', () => {
+  it('every declared failure actually appears in the statement', () => {
     for (const f of expected.historicalFailures) {
-      const hit = inbox.find(
-        (s) =>
-          s.body.includes(f.vpa) &&
-          /could not be processed|declined|insufficient|failed/i.test(s.body),
+      const hit = DEMO_TXNS.find(
+        (t) => narration(t).includes(f.vpa) && t.isFailure && FAILURE.test(narration(t)),
       );
       expect(hit, `${f.vpa} ${f.expectedCause}`).toBeDefined();
     }
   });
 });
 
-describe('demo corpus — noise', () => {
-  it('carries OTPs, promos and enquiries that must parse to null', () => {
-    const otps = inbox.filter((m) => /\bOTP\b/i.test(m.body));
-    const promos = inbox.filter((m) => /pre-approved|cashback|joining fee|T&C/i.test(m.body));
-    expect(otps.length).toBeGreaterThanOrEqual(30);
-    expect(promos.length).toBeGreaterThanOrEqual(25);
+describe('demo statement — what a statement does NOT contain', () => {
+  /**
+   * The privacy dividend, asserted rather than claimed.
+   *
+   * An SMS inbox carries OTPs, promotions and personal messages, and any parser
+   * pointed at one has to read all of it before deciding what to discard. A
+   * statement carries transactions and nothing else — there is no OTP here to
+   * ignore, because there is no OTP in the file.
+   */
+  it('carries no one-time passwords', () => {
+    const otps = DEMO_TXNS.filter((t) => /\botp\b|one time password/i.test(narration(t)));
+    expect(otps).toHaveLength(0);
   });
 
-  it('includes future-debit notices, which are not transactions', () => {
-    expect(inbox.some((m) => /will be debited/i.test(m.body))).toBe(true);
+  it('carries no promotional content', () => {
+    const promos = DEMO_TXNS.filter((t) =>
+      /pre-approved|cashback offer|joining fee|t&c apply/i.test(narration(t)),
+    );
+    expect(promos).toHaveLength(0);
   });
 
-  it('includes card spends, which must not hit the account ledger', () => {
-    expect(inbox.some((m) => /spent on Card/i.test(m.body))).toBe(true);
+  it('every row is a movement of money with an amount and a direction', () => {
+    for (const t of DEMO_TXNS) {
+      expect(t.amount).toBeGreaterThan(0);
+      expect(['DEBIT', 'CREDIT']).toContain(t.direction);
+      expect(t.source).toBe('STATEMENT');
+    }
   });
 });

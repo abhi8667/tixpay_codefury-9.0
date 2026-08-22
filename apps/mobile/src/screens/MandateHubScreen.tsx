@@ -3,6 +3,12 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-nati
 import { t, typography, space, radius } from '../theme';
 import { Rupee } from '../components/Rupee';
 import { useAppStore } from '../../store/useAppStore';
+import { formatIstDate } from '@tixpay/engine';
+import type { Cadence } from '@tixpay/types';
+
+/** 'MONTHLY' reads as shouting in a list; the cadence is shown, not asserted. */
+const cadenceLabel = (c: Cadence): string =>
+  c === 'MONTHLY' ? 'Monthly' : c === 'WEEKLY' ? 'Weekly' : 'Quarterly';
 
 interface MandateHubScreenProps {
   onBack?: () => void;
@@ -76,15 +82,15 @@ export const MandateHubScreen: React.FC<MandateHubScreenProps> = ({ onBack }) =>
                   activeOpacity={0.7}
                 >
                   <View style={styles.logoCircle}>
-                    <Text style={styles.logoText}>SIP</Text>
+                    <Text style={styles.logoText}>{m.category}</Text>
                   </View>
                   <View style={styles.mandateInfo}>
                     <Text style={styles.mandateName}>{displayName}</Text>
                     <Text style={styles.mandateMeta}>
-                      Monthly • Next: Mar {m.dayOfMonth} {isPaused ? '(PAUSED)' : ''}
+                      {cadenceLabel(m.cadence)} • Next: {formatIstDate(m.nextDebit)}{isPaused ? ' (PAUSED)' : ''}
                     </Text>
                     <Text style={styles.provenanceText}>
-                      {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} SMS
+                      {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} statement rows
                     </Text>
                   </View>
                   <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
@@ -117,10 +123,10 @@ export const MandateHubScreen: React.FC<MandateHubScreenProps> = ({ onBack }) =>
                   <View style={styles.mandateInfo}>
                     <Text style={styles.mandateName}>{displayName}</Text>
                     <Text style={styles.mandateMeta}>
-                      Monthly • Next: Mar {m.dayOfMonth} {isPaused ? '(PAUSED)' : ''}
+                      {cadenceLabel(m.cadence)} • Next: {formatIstDate(m.nextDebit)}{isPaused ? ' (PAUSED)' : ''}
                     </Text>
                     <Text style={styles.provenanceText}>
-                      {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} SMS
+                      {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} statement rows
                     </Text>
                   </View>
                   <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
@@ -153,10 +159,10 @@ export const MandateHubScreen: React.FC<MandateHubScreenProps> = ({ onBack }) =>
                   <View style={styles.mandateInfo}>
                     <Text style={styles.mandateName}>{displayName}</Text>
                     <Text style={styles.mandateMeta}>
-                      Monthly • Next: Mar {m.dayOfMonth} {isPaused ? '(PAUSED)' : ''}
+                      {cadenceLabel(m.cadence)} • Next: {formatIstDate(m.nextDebit)}{isPaused ? ' (PAUSED)' : ''}
                     </Text>
                     <Text style={styles.provenanceText}>
-                      {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} SMS
+                      {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} statement rows
                     </Text>
                   </View>
                   <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
@@ -189,10 +195,10 @@ export const MandateHubScreen: React.FC<MandateHubScreenProps> = ({ onBack }) =>
                   <View style={styles.mandateInfo}>
                     <Text style={styles.mandateName}>{displayName}</Text>
                     <Text style={styles.mandateMeta}>
-                      Monthly • Next: Mar {m.dayOfMonth} {isPaused ? '(PAUSED)' : ''}
+                      {cadenceLabel(m.cadence)} • Next: {formatIstDate(m.nextDebit)}{isPaused ? ' (PAUSED)' : ''}
                     </Text>
                     <Text style={styles.provenanceText}>
-                      {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} SMS
+                      {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} statement rows
                     </Text>
                   </View>
                   <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
@@ -207,7 +213,7 @@ export const MandateHubScreen: React.FC<MandateHubScreenProps> = ({ onBack }) =>
           <View style={styles.confidenceMeta}>
             <Text style={styles.confidenceCardTitle}>Confidence levels</Text>
             <Text style={styles.confidenceCardSub}>
-              Based on SMS history, transaction patterns and merchant detection
+              Median gap between debits, how many we found, and how regular they are
             </Text>
           </View>
           <Text style={styles.arrowRight}>›</Text>

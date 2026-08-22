@@ -1,5 +1,19 @@
 # TiXPay UPI — Build Spec
 
+> **⚠️ HISTORICAL DOCUMENT — does not describe the current build.**
+>
+> This was written during the original 24-hour build, when TiXPay ingested data by reading
+> the device SMS inbox. That path has since been removed: the app now imports a bank
+> statement the user picks through the system file picker, and `READ_SMS` is explicitly
+> blocked in the manifest. The engine's analytical core (mandate discovery, shadow ledger,
+> projection, guard, intercept) is unchanged and still described accurately here.
+>
+> Current documentation: [`README.md`](README.md) and
+> [`packages/engine/README.md`](packages/engine/README.md).
+
+---
+
+
 **24h hackathon · 3 builders · React Native + Expo + TypeScript · Concept prototype, not shipping**
 
 ---

@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import inbox from '../fixtures/demo_inbox.json';
+import { DEMO_TXNS } from './_corpus';
 import expected from '../fixtures/demo_expectations.json';
 import { runPipeline } from '../src/pipeline';
 import { projectWithPaused } from '../src/project/curve';
 import { withTransaction } from '../src/project/ledger';
 import { istDayKey } from '../src/time';
-import type { RawSms, Transaction } from '../src/types';
+import type { Transaction } from '../src/types';
 
 /**
  * End-to-end: the demo corpus through the whole pipeline.
@@ -15,7 +15,7 @@ import type { RawSms, Transaction } from '../src/types';
  */
 
 const NOW = new Date(expected.now);
-const result = runPipeline(inbox as RawSms[], NOW);
+const result = runPipeline(DEMO_TXNS, NOW);
 const on = (key: string) => result.curve.find((p) => istDayKey(p.date) === key)!;
 
 describe('runPipeline — the seam Person C binds to', () => {
@@ -29,8 +29,8 @@ describe('runPipeline — the seam Person C binds to', () => {
     expect(result.interventions.length).toBeGreaterThan(0);
   });
 
-  it('parses across all six banks', () => {
-    expect(result.stats.banks).toEqual(['AXIS', 'HDFC', 'ICICI', 'KOTAK', 'PNB', 'SBI']);
+  it('reports the one bank the statement belongs to', () => {
+    expect(result.stats.banks).toEqual(['HDFC']);
   });
 
   it('clears the >70% parse floor from the brief', () => {
@@ -46,15 +46,15 @@ describe('runPipeline — the seam Person C binds to', () => {
     }
   });
 
-  it('is deterministic — same inbox, same numbers, every run', () => {
-    const again = runPipeline(inbox as RawSms[], NOW);
+  it('is deterministic — same statement, same numbers, every run', () => {
+    const again = runPipeline(DEMO_TXNS, NOW);
     expect(again.curve.map((p) => p.balance)).toEqual(result.curve.map((p) => p.balance));
     expect(again.mandates.map((m) => m.id)).toEqual(result.mandates.map((m) => m.id));
   });
 
   it('is fast enough to sit behind a tap', () => {
     const t0 = performance.now();
-    runPipeline(inbox as RawSms[], NOW);
+    runPipeline(DEMO_TXNS, NOW);
     expect(performance.now() - t0).toBeLessThan(1000);
   });
 });
@@ -208,11 +208,10 @@ describe('pre-payment — beat 8, the ₹8,000 payment', () => {
     isFailure: false,
     source: 'INTENT',
     vpa: 'merchant@ybl',
-    raw: { address: 'AD-HDFCBK', body: 'intent', date: NOW.getTime() },
   };
 
   const after = withTransaction(result.ledger, payment);
-  const curve = runPipeline(inbox as RawSms[], NOW).curve;
+  const curve = runPipeline(DEMO_TXNS, NOW).curve;
   const hypothetical = projectWithPaused(after, result.mandates, result.income, NOW, []);
   const hOn = (k: string) => hypothetical.find((p) => istDayKey(p.date) === k)!;
 

@@ -1,21 +1,43 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal } from 'react-native';
-import { t, typography, space, radius } from '../theme';
+import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView } from 'react-native';
+import { t, space, radius } from '../theme';
 import { Rupee } from '../components/Rupee';
+import { redact } from '../utils/redaction';
+import { useAppStore } from '../../store/useAppStore';
 
 interface PaymentSuccessScreenProps {
   visible: boolean;
   amount: number;
   payeeName: string;
+  vpa: string;
   onDismiss: () => void;
 }
 
+/**
+ * The receipt for a SIMULATED payment.
+ *
+ * No money moved. TiXPay is not a PSP and holds no UPI licence, so this screen
+ * says so plainly rather than dressing up a mock transfer as a real one — the
+ * product on show is the analysis, and pretending to move money would put the
+ * one genuinely trustworthy thing about this app in question.
+ *
+ * Everything rendered here comes from the payment the user actually made:
+ * a previous version hardcoded ₹8,000 and a fixed payee, so paying ₹500
+ * produced a receipt for someone else's ₹8,000.
+ */
 export const PaymentSuccessScreen: React.FC<PaymentSuccessScreenProps> = ({
   visible,
   amount,
   payeeName,
+  vpa,
   onDismiss,
 }) => {
+  const ledger = useAppStore((s) => s.ledger());
+  const shortfalls = useAppStore((s) => s.shortfalls());
+
+  const balance = ledger?.currentBalance ?? 0;
+  const nextDip = shortfalls[0];
+
   return (
     <Modal visible={visible} animationType="fade" transparent={false}>
       <View style={styles.container}>
@@ -23,49 +45,56 @@ export const PaymentSuccessScreen: React.FC<PaymentSuccessScreenProps> = ({
           <Text style={styles.closeText}>✕</Text>
         </TouchableOpacity>
 
-        <View style={styles.centerSection}>
-          {/* Glowing Green Checkmark */}
-          <View style={styles.checkCircle}>
-            <Text style={styles.checkIcon}>✓</Text>
+        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+          <View style={styles.centerSection}>
+            <View style={styles.checkCircle}>
+              <Text style={styles.checkIcon}>✓</Text>
+            </View>
+
+            <Rupee amount={amount} style={styles.amountDisplay} showPrefix={false} />
+            <Text style={styles.toLabel}>to {payeeName.toUpperCase()}</Text>
+            {vpa ? <Text style={styles.vpaText}>{redact.vpa(vpa)}</Text> : null}
+
+            <View style={styles.simBadge}>
+              <Text style={styles.simText}>SIMULATED — no money moved</Text>
+            </View>
+
+            <Text style={styles.simExplain}>
+              TiXPay is not a payment provider. This debit is applied to your local ledger so
+              you can see its effect on the projection.
+            </Text>
           </View>
 
-          <Rupee amount={amount} style={styles.amountDisplay} showPrefix={false} />
-          <Text style={styles.toLabel}>to {payeeName.toUpperCase()}</Text>
-          <Text style={styles.vpaText}>aadhi7525@okicici</Text>
+          <View style={styles.impactCard}>
+            <Text style={styles.impactHeader}>What this did to your projection</Text>
 
-          <View style={styles.famAppBadge}>
-            <Text style={styles.famAppText}>✓ Paid securely via FamApp</Text>
-          </View>
+            <View style={styles.impactRow}>
+              <Text style={styles.impactLabel}>Balance now</Text>
+              <Rupee amount={balance} style={styles.impactValue} showPrefix={false} />
+            </View>
 
-          <View style={styles.speedBadge}>
-            <Text style={styles.speedText}>⚡ Paid in 1.24 s</Text>
-          </View>
+            <View style={styles.impactRow}>
+              <Text style={styles.impactLabel}>Next shortfall</Text>
+              <Text style={[styles.impactValue, nextDip ? styles.bad : styles.good]}>
+                {nextDip
+                  ? `${nextDip.date.getDate()} ${nextDip.date.toLocaleString('en-IN', {
+                      month: 'short',
+                    })} · ₹${Math.round(nextDip.deficit).toLocaleString('en-IN')} short`
+                  : 'None in 30 days'}
+              </Text>
+            </View>
 
-          <Text style={styles.utrText}>UTR: 623327046949 📋</Text>
-          <Text style={styles.viewDetailsText}>View Details ›</Text>
-        </View>
-
-        {/* 3 Security Badges */}
-        <View style={styles.badgesRow}>
-          <View style={styles.badgeItem}>
-            <Text style={styles.badgeEmoji}>🛡️</Text>
-            <Text style={styles.badgeTitle}>100% Secure</Text>
-            <Text style={styles.badgeSub}>Your payment is safe with TiXPay</Text>
+            {nextDip && nextDip.atRisk[0] ? (
+              <Text style={styles.atRiskLine}>
+                {nextDip.atRisk[0].displayName} ₹
+                {nextDip.atRisk[0].amount.toLocaleString('en-IN')} is at risk.
+              </Text>
+            ) : null}
           </View>
-          <View style={styles.badgeItem}>
-            <Text style={styles.badgeEmoji}>⚡</Text>
-            <Text style={styles.badgeTitle}>Instant Transfer</Text>
-            <Text style={styles.badgeSub}>Amount sent successfully</Text>
-          </View>
-          <View style={styles.badgeItem}>
-            <Text style={styles.badgeEmoji}>🧾</Text>
-            <Text style={styles.badgeTitle}>Digital Receipt</Text>
-            <Text style={styles.badgeSub}>Receipt sent to app inbox</Text>
-          </View>
-        </View>
+        </ScrollView>
 
         <TouchableOpacity style={styles.analyticsBtn} onPress={onDismiss} activeOpacity={0.8}>
-          <Text style={styles.analyticsBtnText}>📊 View Analytics & Balance Curve ›</Text>
+          <Text style={styles.analyticsBtnText}>📊 View balance curve ›</Text>
         </TouchableOpacity>
       </View>
     </Modal>
@@ -73,12 +102,8 @@ export const PaymentSuccessScreen: React.FC<PaymentSuccessScreenProps> = ({
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: t.bg,
-    padding: space.lg,
-    justifyContent: 'space-between',
-  },
+  container: { flex: 1, backgroundColor: t.bg, padding: space.lg },
+  scroll: { flexGrow: 1, justifyContent: 'center' },
   closeBtn: {
     marginTop: space.sm,
     width: 36,
@@ -86,13 +111,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  closeText: {
-    color: t.text,
-    fontSize: 22,
-  },
-  centerSection: {
-    alignItems: 'center',
-  },
+  closeText: { color: t.text, fontSize: 22 },
+  centerSection: { alignItems: 'center' },
   checkCircle: {
     width: 72,
     height: 72,
@@ -104,107 +124,55 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: space.md,
   },
-  checkIcon: {
-    color: t.ok,
-    fontSize: 36,
-    fontWeight: '800',
-  },
-  amountDisplay: {
-    color: t.text,
-    fontSize: 44,
-    fontWeight: '900',
-    marginBottom: 4,
-  },
-  toLabel: {
-    color: t.text,
-    fontSize: 14,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  vpaText: {
-    color: t.textDim,
-    fontSize: 13,
-    marginBottom: space.sm,
-  },
-  famAppBadge: {
-    backgroundColor: t.surface,
-    borderColor: t.border,
+  checkIcon: { color: t.ok, fontSize: 36, fontWeight: '800' },
+  amountDisplay: { color: t.text, fontSize: 44, fontWeight: '900', marginBottom: 4 },
+  toLabel: { color: t.text, fontSize: 14, fontWeight: '600' },
+  vpaText: { color: t.textDim, fontSize: 13, marginTop: 2 },
+  simBadge: {
+    marginTop: space.md,
     borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    marginBottom: space.xs,
+    borderColor: t.warn,
+    borderRadius: radius.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: 6,
   },
-  famAppText: {
-    color: t.ok,
-    fontSize: 12,
-    fontWeight: '600',
+  simText: { color: t.warn, fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
+  simExplain: {
+    color: t.textFaint,
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'center',
+    marginTop: space.sm,
+    maxWidth: 300,
   },
-  speedBadge: {
-    backgroundColor: '#382A12',
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    marginVertical: space.xs,
-  },
-  speedText: {
-    color: t.warn,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  utrText: {
-    color: t.textDim,
-    fontSize: 13,
-    marginTop: space.xs,
-  },
-  viewDetailsText: {
-    color: t.warn,
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: space.xs,
-  },
-  badgesRow: {
-    flexDirection: 'row',
+  impactCard: {
+    marginTop: space.xl,
     backgroundColor: t.surface,
     borderColor: t.border,
     borderWidth: 1,
     borderRadius: radius.md,
     padding: space.md,
   },
-  badgeItem: {
-    flex: 1,
+  impactHeader: { color: t.text, fontSize: 14, fontWeight: '700', marginBottom: space.sm },
+  impactRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 2,
+    marginBottom: space.sm,
   },
-  badgeEmoji: {
-    fontSize: 20,
-    marginBottom: 4,
-  },
-  badgeTitle: {
-    color: t.text,
-    fontSize: 12,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 2,
-  },
-  badgeSub: {
-    color: t.textFaint,
-    fontSize: 10,
-    textAlign: 'center',
-  },
+  impactLabel: { color: t.textDim, fontSize: 13 },
+  impactValue: { color: t.text, fontSize: 15, fontWeight: '700' },
+  good: { color: t.ok },
+  bad: { color: t.danger },
+  atRiskLine: { color: t.textDim, fontSize: 12, lineHeight: 18, marginTop: 2 },
   analyticsBtn: {
-    backgroundColor: t.surface,
-    borderColor: t.warn,
-    borderWidth: 1,
     height: 52,
     borderRadius: radius.md,
+    backgroundColor: t.surfaceHi,
+    borderWidth: 1,
+    borderColor: t.border,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: space.md,
   },
-  analyticsBtnText: {
-    color: t.warn,
-    fontSize: 15,
-    fontWeight: '800',
-  },
+  analyticsBtnText: { color: t.text, fontSize: 15, fontWeight: '700' },
 });

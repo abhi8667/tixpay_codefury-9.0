@@ -6,6 +6,7 @@ import { scaleLinear } from 'd3-scale';
 import { t, typography, radius, space } from '../theme';
 import { Rupee } from './Rupee';
 import type { BalanceCurve as BalanceCurveType, Shortfall } from '@tixpay/types';
+import { formatIstDate } from '@tixpay/engine';
 
 const SCREEN_WIDTH = Dimensions.get('window').width - 32; // padding space.md * 2
 const HEIGHT = 220;
@@ -160,12 +161,19 @@ export const BalanceCurve: React.FC<BalanceCurveProps> = ({
         </TouchableOpacity>
       )}
 
-      {/* Date Labels X-Axis */}
+      {/* Date labels, read off the curve itself.
+          These were four hardcoded March dates, so the axis disagreed with the
+          line above it the moment the World Clock moved — the fastest way to
+          lose a room is a chart whose axis is decoration. */}
       <View style={styles.xAxis}>
-        <Text style={styles.xLabel}>Mar 8</Text>
-        <Text style={styles.xLabel}>Mar 12</Text>
-        <Text style={styles.xLabel}>Mar 16</Text>
-        <Text style={styles.xLabel}>Mar 20</Text>
+        {[0, 0.33, 0.66, 0.99].map((fraction) => {
+          const point = curve[Math.min(Math.floor(fraction * curve.length), curve.length - 1)];
+          return (
+            <Text key={fraction} style={styles.xLabel}>
+              {point ? formatIstDate(point.date) : ''}
+            </Text>
+          );
+        })}
       </View>
 
       {/* Tap the dip Callout Pill */}

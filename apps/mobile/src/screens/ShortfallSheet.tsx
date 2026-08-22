@@ -1,37 +1,82 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView } from 'react-native';
 import { t, space, radius } from '../theme';
 import { Rupee } from '../components/Rupee';
 import { useAppStore } from '../../store/useAppStore';
-import type { Intervention } from '@tixpay/types';
+import type { Intervention, Shortfall } from '@tixpay/types';
+import { formatIstDate } from '@tixpay/engine';
 
 interface ShortfallSheetProps {
   visible: boolean;
+  /** The dip the user tapped. Null when the sheet is closed. */
+  shortfall: Shortfall | null;
   onClose: () => void;
-  onSelectAction: (actionLabel: string, intervention?: Intervention) => void;
+  onSelectAction: (intervention: Intervention) => void;
 }
 
 export const ShortfallSheet: React.FC<ShortfallSheetProps> = ({
   visible,
+  shortfall,
   onClose,
   onSelectAction,
 }) => {
   const shortfalls = useAppStore((state) => state.shortfalls());
-  const activeShortfall = shortfalls.length > 0 ? shortfalls[0] : undefined;
-  const interventions = useAppStore((state) => state.interventions(activeShortfall));
+  // Fall back to the earliest dip when opened without a specific one.
+  const activeShortfall = shortfall ?? shortfalls[0];
+  // `interventions()` filters, so it returns a new array each call — selecting
+  // it directly re-renders forever. `_pipelineCache` is a stable reference that
+  // changes exactly when the projection is recomputed, which is the real
+  // dependency here.
+  const pipelineCache = useAppStore((state) => state._pipelineCache);
+  const interventionsFor = useAppStore((state) => state.interventions);
+  const interventions = useMemo(
+    () => interventionsFor(activeShortfall),
+    [interventionsFor, pipelineCache, activeShortfall],
+  );
   const redactionOn = useAppStore((state) => state.redactionOn);
+  const canFundSweep = useAppStore((state) => state.canFundSweep);
+  const keeperBalance = useAppStore((state) => state.keeperBalance);
 
-  const featuredIntervention = interventions.length > 0 ? interventions[0] : undefined;
-  const secondaryInterventions = interventions.slice(1);
+  // A sweep the Keeper cannot fund is not an option, it is a dead end. Drop it
+  // rather than offer a remedy that does nothing when confirmed.
+  const affordable = useMemo(
+    () => interventions.filter((i) => i.kind !== 'SWEEP' || canFundSweep(i.amount ?? 0)),
+    [interventions, canFundSweep, keeperBalance],
+  );
 
-  const deficitAmount = activeShortfall?.deficit ?? 3200;
+  const featuredIntervention = affordable.length > 0 ? affordable[0] : undefined;
+  const secondaryInterventions = affordable.slice(1);
+
+  const deficitAmount = activeShortfall?.deficit ?? 0;
   const atRiskList = activeShortfall?.atRisk ?? [];
+  const dipDate = activeShortfall ? formatIstDate(activeShortfall.date) : '';
+
+  /** One line saying what accepting this actually does. */
+  const describe = (i: Intervention): string => {
+    if (i.kind === 'PAUSE') {
+      return `Skip this debit${i.target ? ` on ${formatIstDate(i.target.nextDebit)}` : ''}`;
+    }
+    if (i.kind === 'SHIFT') {
+      return i.target ? `Move the debit to ${formatIstDate(i.target.nextDebit)}` : 'Move the debit later';
+    }
+    return `From your Keeper · ₹${Math.round(keeperBalance).toLocaleString('en-IN')} available`;
+  };
+
+  /** What this rescues, named from the engine rather than assumed. */
+  const saves = (i: Intervention): string | null => {
+    const first = i.savedMandates[0];
+    if (!first) return null;
+    const more = i.savedMandates.length - 1;
+    return `✓ Saves your ₹${first.amount.toLocaleString('en-IN')} ${first.displayName}${
+      more > 0 ? ` and ${more} more` : ''
+    }`;
+  };
 
   const handleAction = (intervention: Intervention) => {
-    // Deliberately does NOT apply the pause. This is the "pick one" step; the
-    // confirm modal owns applying it. Toggling here as well meant the two
-    // cancelled out and the curve never moved.
-    onSelectAction(intervention.label, intervention);
+    // Deliberately does NOT apply the intervention. This is the "pick one"
+    // step; the confirm modal owns applying it. Applying here as well meant the
+    // two cancelled out and the curve never moved.
+    onSelectAction(intervention);
   };
 
   return (
@@ -49,7 +94,7 @@ export const ShortfallSheet: React.FC<ShortfallSheetProps> = ({
             <View style={styles.headerInfo}>
               <Text style={styles.headerTitle}>Cash shortfall detected</Text>
               <Text style={styles.headerSub}>
-                You'll be ₹{deficitAmount.toLocaleString('en-IN')} short on Mar 12
+                You'll be ₹{Math.round(deficitAmount).toLocaleString('en-IN')} short on {dipDate}
               </Text>
             </View>
           </View>
@@ -75,7 +120,7 @@ export const ShortfallSheet: React.FC<ShortfallSheetProps> = ({
                       </View>
                       <View style={styles.itemMeta}>
                         <Text style={styles.itemName}>{displayName}</Text>
-                        <Text style={styles.itemDate}>Mar {item.dayOfMonth}</Text>
+                        <Text style={styles.itemDate}>{formatIstDate(item.nextDebit)}</Text>
                       </View>
                       <Rupee amount={item.amount} style={styles.itemAmount} showPrefix={false} />
                       {item.priority === 'CRITICAL' && (
@@ -99,29 +144,32 @@ export const ShortfallSheet: React.FC<ShortfallSheetProps> = ({
                 <View style={styles.featuredHeader}>
                   <View style={styles.netflixLogo}>
                     <Text style={styles.netflixN}>
-                      {featuredIntervention.target?.displayName.slice(0, 1) || 'N'}
+                      {featuredIntervention.target?.displayName.slice(0, 1) ??
+                        (featuredIntervention.kind === 'SWEEP' ? '🏺' : '⚡')}
                     </Text>
                   </View>
                   <View style={styles.featuredMeta}>
                     <Text style={styles.featuredTitle}>{featuredIntervention.label}</Text>
-                    <Text style={styles.featuredSub}>
-                      Pause this payment on Mar {featuredIntervention.target?.dayOfMonth ?? 12}
-                    </Text>
+                    <Text style={styles.featuredSub}>{describe(featuredIntervention)}</Text>
                   </View>
-                  <Rupee
-                    amount={featuredIntervention.amount ?? 649}
-                    style={styles.featuredAmount}
-                    showPrefix={false}
-                  />
+                  {featuredIntervention.amount ? (
+                    <Rupee
+                      amount={featuredIntervention.amount}
+                      style={styles.featuredAmount}
+                      showPrefix={false}
+                    />
+                  ) : null}
                 </View>
 
                 <View style={styles.benefitsBox}>
-                  <Text style={styles.benefitGreen}>
-                    ✓ Saves your ₹5,000 SIP
-                  </Text>
-                  <Text style={styles.benefitYellow}>
-                    + ₹{featuredIntervention.penaltyAvoided ?? 250} penalty avoided
-                  </Text>
+                  {saves(featuredIntervention) && (
+                    <Text style={styles.benefitGreen}>{saves(featuredIntervention)}</Text>
+                  )}
+                  {featuredIntervention.penaltyAvoided > 0 && (
+                    <Text style={styles.benefitYellow}>
+                      + ₹{featuredIntervention.penaltyAvoided.toLocaleString('en-IN')} penalty avoided
+                    </Text>
+                  )}
                 </View>
 
                 <TouchableOpacity
@@ -140,14 +188,13 @@ export const ShortfallSheet: React.FC<ShortfallSheetProps> = ({
                 <View style={styles.secondaryHeader}>
                   <View style={styles.bbLogo}>
                     <Text style={styles.bbText}>
-                      {intervention.target?.displayName.slice(0, 2) || '⚡'}
+                      {intervention.target?.displayName.slice(0, 2) ??
+                        (intervention.kind === 'SWEEP' ? '🏺' : '⚡')}
                     </Text>
                   </View>
                   <View style={styles.featuredMeta}>
                     <Text style={styles.featuredTitle}>{intervention.label}</Text>
-                    <Text style={styles.featuredSub}>
-                      Avoids ₹{intervention.penaltyAvoided} bounce penalty
-                    </Text>
+                    <Text style={styles.featuredSub}>{describe(intervention)}</Text>
                   </View>
                   {intervention.amount && (
                     <Rupee

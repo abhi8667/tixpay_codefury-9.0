@@ -5,21 +5,20 @@ import {
 import { inferIncomeEvents } from '../src/project/income';
 import { projectBalance, projectWithPaused, occurrencesInWindow } from '../src/project/curve';
 import { istDayKey } from '../src/time';
-import type { Mandate, RawSms, Transaction } from '../src/types';
+import type { Mandate, Transaction } from '../src/types';
 
 const NOW = new Date('2026-03-01T09:00:00+05:30');
 const ist = (s: string) => new Date(`${s}+05:30`);
 
 let seq = 0;
 function txn(partial: Partial<Transaction> & { amount: number; timestamp: Date }): Transaction {
-  const raw: RawSms = { address: 'AD-HDFCBK', body: 'synthetic', date: partial.timestamp.getTime() };
   return {
     id: `t${seq++}`,
     direction: 'DEBIT',
     bank: 'HDFC',
     isFailure: false,
     accountTail: '4471',
-    raw,
+    source: 'STATEMENT',
     ...partial,
   };
 }

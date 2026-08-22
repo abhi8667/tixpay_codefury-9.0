@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { t, space } from '../theme';
 
-export type TabName = 'Home' | 'Pay' | 'Insights' | 'Card' | 'More';
+export type TabName = 'Insights' | 'Pay' | 'Keeper' | 'Mandates';
 
 interface BottomTabBarProps {
   activeTab: TabName;
@@ -13,12 +13,13 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
   activeTab,
   onTabChange,
 }) => {
+  // Four tabs, each landing on a screen that works. A fifth that opened a
+  // static mockup was worse than not having it.
   const tabs: { name: TabName; icon: string }[] = [
-    { name: 'Home', icon: '🏠' },
-    { name: 'Pay', icon: '💳' },
     { name: 'Insights', icon: '📊' },
-    { name: 'Card', icon: '💳' },
-    { name: 'More', icon: '⣿' },
+    { name: 'Pay', icon: '💳' },
+    { name: 'Keeper', icon: '🏺' },
+    { name: 'Mandates', icon: '🛡️' },
   ];
 
   return (

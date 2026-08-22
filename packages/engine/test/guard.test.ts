@@ -55,8 +55,7 @@ describe('guard module', () => {
       const ledger: ShadowLedger = {
         txns: [{
           id: 't0', direction: 'CREDIT', amount: 0, bank: 'HDFC', 
-          timestamp: now, isFailure: false, balanceHint: 2700, 
-          raw: { address: '', body: '', date: 0 }
+          timestamp: now, isFailure: false, balanceHint: 2700 
         }],
         currentBalance: 2700, drift: 0, balanceAt: () => 2700
       };

@@ -13,15 +13,14 @@ export const SimulatorDashboard: React.FC<SimulatorDashboardProps> = ({ onBack }
   const now = useAppStore((state) => state.now);
   const setNow = useAppStore((state) => state.setNow);
   const loadScenario = useAppStore((state) => state.loadScenario);
-  const injectSms = useAppStore((state) => state.injectSms);
+  const injectSimulated = useAppStore((state) => state.injectSimulated);
   const activeScenario = useAppStore((state) => state.activeScenario);
   const redactionOn = useAppStore((state) => state.redactionOn);
   const toggleRedaction = useAppStore((state) => state.toggleRedaction);
-  const inboxMode = useAppStore((state) => state.inboxMode);
-  const setInboxMode = useAppStore((state) => state.setInboxMode);
-  const rawSms = useAppStore((state) => state.rawSms);
+  const imported = useAppStore((state) => state.imported);
+  const loadSampleStatement = useAppStore((state) => state.loadSampleStatement);
+  const txnCount = useAppStore((state) => state.transactions().length);
 
-  const currentDay = now.getDate();
 
   const triggerToast = (msg: string) => {
     setToastMsg(msg);
@@ -32,42 +31,36 @@ export const SimulatorDashboard: React.FC<SimulatorDashboardProps> = ({ onBack }
     const nextDate = new Date(now);
     nextDate.setDate(nextDate.getDate() + delta);
     setNow(nextDate);
-    triggerToast(`World Clock set to March ${nextDate.getDate()}, 2026`);
+    triggerToast(
+      `World Clock: ${nextDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}`,
+    );
   };
 
   const handleLoadScenario = (preset: ScenarioPreset) => {
     loadScenario(preset);
     const names = {
-      healthy: 'Healthy Month (Positive curve, no shortfall)',
-      tight: 'Tight Month (Low cash-flow margin)',
-      bounce: 'Bounce Imminent (Hero Demo: -₹3,200 deficit on Mar 12)',
+      healthy: 'Healthy — clear of the buffer all month',
+      tight: 'Tight — clear on open, one payment from trouble',
+      bounce: 'Bounce imminent — already short ahead',
     };
-    triggerToast(`Loaded "${names[preset]}"`);
+    triggerToast(`${names[preset]} · clock set to ${preset === 'bounce' ? '1' : preset === 'healthy' ? '13' : '26'} March`);
   };
 
-  const handleInject = (kind: 'SALARY' | 'SIP' | 'FAILED') => {
-    const timestamp = now.getTime();
+  /**
+   * Append a simulated movement to the local ledger.
+   *
+   * Nothing is fabricated into the statement itself — the imported file stays
+   * exactly as the bank wrote it. These land in a separate `simulatedTxns`
+   * list, so 'Reset' restores the pristine import and the question "is this
+   * rigged?" has a one-tap answer.
+   */
+  const handleInject = (kind: 'SALARY' | 'SIP') => {
     if (kind === 'SALARY') {
-      injectSms({
-        address: 'AD-HDFCBK',
-        body: 'Rs.45,000.00 credited to a/c **4471 by SALARY CREDIT. Avl Bal Rs.57,450.00',
-        date: timestamp,
-      });
-      triggerToast('SMS Injected: ₹45,000 Salary Credited from HDFC');
-    } else if (kind === 'SIP') {
-      injectSms({
-        address: 'VM-HDFCBK-S',
-        body: 'Rs.5,000.00 debited from a/c **4471 on 12-03-26 to VPA hdfcmutual@hdfcbank. Ref 841555106570. Avl Bal Rs.7,450.00',
-        date: timestamp,
-      });
-      triggerToast('SMS Injected: ₹5,000 SIP Debited by HDFC MF');
+      injectSimulated('CREDIT', 45000, 'NEFT CR-SIMULATED SALARY');
+      triggerToast('Simulated: ₹45,000 salary credited');
     } else {
-      injectSms({
-        address: 'JD-ICICIB',
-        body: 'Autopay debit of Rs.649.00 towards Netflix could not be processed due to insufficient balance in a/c **4471.',
-        date: timestamp,
-      });
-      triggerToast('SMS Injected: Autopay FAILED for Netflix');
+      injectSimulated('DEBIT', 5000, 'ACH D-SIMULATED SIP');
+      triggerToast('Simulated: ₹5,000 SIP debited');
     }
   };
 
@@ -92,7 +85,9 @@ export const SimulatorDashboard: React.FC<SimulatorDashboardProps> = ({ onBack }
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>⏱️ World Clock Slider</Text>
           <Text style={styles.sectionSub}>Shift "today" forward/backward deterministically</Text>
-          <Text style={styles.clockValue}>Today: March {currentDay}, 2026</Text>
+          <Text style={styles.clockValue}>
+            Today: {now.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+          </Text>
 
           <View style={styles.sliderButtons}>
             {[-5, -1, 1, 5].map((delta) => (
@@ -112,7 +107,10 @@ export const SimulatorDashboard: React.FC<SimulatorDashboardProps> = ({ onBack }
         {/* Demo Scenario Presets */}
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>🎬 Demo Scenario Presets</Text>
-          <Text style={styles.sectionSub}>One-tap state presets for judges Q&A</Text>
+          <Text style={styles.sectionSub}>
+            Each preset moves the clock only. The statement is never swapped, so
+            every figure stays derived from the same file.
+          </Text>
 
           <TouchableOpacity
             style={[
@@ -145,36 +143,27 @@ export const SimulatorDashboard: React.FC<SimulatorDashboardProps> = ({ onBack }
             onPress={() => handleLoadScenario('bounce')}
           >
             <Text style={[styles.presetText, { color: t.danger }]}>
-              🔴 Bounce Imminent (Hero Demo: -₹3,200)
+              🔴 Bounce Imminent
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Synthetic SMS Injector */}
+        {/* Simulated transaction injector */}
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>📩 Synthetic SMS Injector ({rawSms.length} loaded)</Text>
-          <Text style={styles.sectionSub}>Inject real-time bank SMS alerts into live stream</Text>
+          <Text style={styles.sectionTitle}>
+            🧪 Simulated Transactions ({txnCount} in ledger)
+          </Text>
+          <Text style={styles.sectionSub}>
+            Applied locally on top of the imported statement. The file itself is never edited.
+          </Text>
 
-          <View style={styles.smsGrid}>
-            <TouchableOpacity
-              style={styles.smsBtn}
-              onPress={() => handleInject('SALARY')}
-            >
-              <Text style={styles.smsBtnText}>+ [Salary Credited ₹45,000]</Text>
+          <View style={styles.injectGrid}>
+            <TouchableOpacity style={styles.injectBtn} onPress={() => handleInject('SALARY')}>
+              <Text style={styles.injectBtnText}>+ [Salary Credited ₹45,000]</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.smsBtn}
-              onPress={() => handleInject('SIP')}
-            >
-              <Text style={styles.smsBtnText}>- [SIP Debited ₹5,000]</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.smsBtn}
-              onPress={() => handleInject('FAILED')}
-            >
-              <Text style={styles.smsBtnText}>! [Autopay FAILED: Netflix]</Text>
+            <TouchableOpacity style={styles.injectBtn} onPress={() => handleInject('SIP')}>
+              <Text style={styles.injectBtnText}>- [SIP Debited ₹5,000]</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -199,22 +188,24 @@ export const SimulatorDashboard: React.FC<SimulatorDashboardProps> = ({ onBack }
 
           <View style={[styles.toggleRow, { marginTop: space.md }]}>
             <View style={styles.toggleMeta}>
-              <Text style={styles.toggleTitle}>SMS Inbox Mode</Text>
+              <Text style={styles.toggleTitle}>Data source</Text>
               <Text style={styles.toggleSub}>
-                Currently: {inboxMode === 'real' ? 'Real Device Inbox' : 'Seeded Synthetic'}
+                {imported
+                  ? `${imported.sourceName} · ${imported.parsed} rows`
+                  : 'No statement imported'}
               </Text>
             </View>
-            <TouchableOpacity
-              style={styles.modeToggleBtn}
-              onPress={() => {
-                const nextMode = inboxMode === 'real' ? 'seeded' : 'real';
-                setInboxMode(nextMode);
-                triggerToast(`Switched Inbox Mode to: ${nextMode.toUpperCase()}`);
-              }}
-            >
-              <Text style={styles.modeToggleText}>{inboxMode.toUpperCase()}</Text>
+            <TouchableOpacity style={styles.modeToggleBtn} onPress={() => {
+              loadSampleStatement();
+              triggerToast('Reset to the pristine sample statement');
+            }}>
+              <Text style={styles.modeToggleText}>RESET</Text>
             </TouchableOpacity>
           </View>
+
+          <Text style={styles.privacyNote}>
+            No SMS, no contacts, no network. This build reads one file you hand it.
+          </Text>
         </View>
       </ScrollView>
     </View>
@@ -322,17 +313,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
-  smsGrid: {
+  injectGrid: {
     gap: space.sm,
   },
-  smsBtn: {
+  injectBtn: {
     backgroundColor: t.surfaceHi,
     borderColor: t.border,
     borderWidth: 1,
     borderRadius: radius.sm,
     padding: space.md,
   },
-  smsBtnText: {
+  injectBtnText: {
     color: t.text,
     fontSize: 14,
     fontWeight: '700',
@@ -354,6 +345,12 @@ const styles = StyleSheet.create({
   toggleSub: {
     color: t.textDim,
     fontSize: 12,
+  },
+  privacyNote: {
+    color: t.ok,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: space.md,
   },
   modeToggleBtn: {
     backgroundColor: t.surfaceHi,

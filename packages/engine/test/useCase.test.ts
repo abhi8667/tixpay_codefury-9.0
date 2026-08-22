@@ -1,21 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import demoInbox from '../fixtures/demo_inbox.json';
+import { DEMO_TXNS } from './_corpus';
 import demoExpectations from '../fixtures/demo_expectations.json';
 import { runPipeline } from '../src/pipeline';
 import { evaluatePayment } from '../src/evaluate';
 import { parseUpiDeepLink } from '../src/parse/deepLink';
 import { projectWithPaused } from '../src/project/curve';
 import { istDayKey } from '../src/time';
-import type { Card, RawSms } from '../src/types';
+import type { Card } from '../src/types';
 
 describe('End-to-End Use Case Scenario (Live Demo Pitch Script)', () => {
   const NOW = new Date(demoExpectations.now); // 2026-03-01
-  const pipelineResult = runPipeline(demoInbox as RawSms[], NOW);
+  const pipelineResult = runPipeline(DEMO_TXNS, NOW);
 
-  it('Step 1: Process inbox and discover 8 mandates with 0 drift', () => {
-    expect(pipelineResult.stats.messages).toBeGreaterThan(400);
+  it('Step 1: Process the statement and discover 8 mandates with 0 drift', () => {
+    expect(pipelineResult.stats.messages).toBeGreaterThan(200);
     expect(pipelineResult.stats.parseRate).toBeGreaterThan(0.7);
-    expect(pipelineResult.stats.banks).toEqual(['AXIS', 'HDFC', 'ICICI', 'KOTAK', 'PNB', 'SBI']);
+    expect(pipelineResult.stats.banks).toEqual(['HDFC']);
     expect(pipelineResult.ledger.drift).toBe(0);
     expect(pipelineResult.mandates).toHaveLength(8);
   });

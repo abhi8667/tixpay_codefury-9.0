@@ -13,8 +13,8 @@
     "test": "vitest run",
     "watch": "vitest --watch",
     "typecheck": "tsc --noEmit",
-    "generate": "tsx scripts/generate.ts --seed 42 --out fixtures/demo_inbox.json",
-    "measure": "tsx scripts/measure.ts"
+    "demo": "tsx scripts/use_case_demo.ts",
+    "bundle-fixture": "node scripts/bundle_demo_statement.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

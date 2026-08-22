@@ -9,7 +9,7 @@
  * Rule: convert at the boundary, accumulate in the middle.
  */
 
-/** Rupees (float, from SMS) → paise (integer). */
+/** Rupees (float, as the statement states them) → paise (integer). */
 export function toPaise(rupees: number): number {
   return Math.round(rupees * 100);
 }

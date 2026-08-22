@@ -10,7 +10,7 @@
 1. [Architecture & Design Principles](#1-architecture--design-principles)
 2. [Implemented Features & Business Logic](#2-implemented-features--business-logic)
    - [Phase 1: Foundation & UPI DeepLink Parser](#21-foundation--upi-deeplink-parser)
-   - [Phase 2: Bank SMS Parser & Mandate Discovery](#22-bank-sms-parser--mandate-discovery)
+   - [Phase 2: Statement Parser & Mandate Discovery](#22-statement-parser--mandate-discovery)
    - [Phase 3: Shadow Ledger & Forward Balance Curve](#23-shadow-ledger--forward-balance-curve)
    - [Phase 4: Guard, Attribution, Router & Pre-Payment Intercept](#24-guard-attribution-router--pre-payment-intercept)
    - [Phase 5: The Grand Pipeline Integration](#25-the-grand-pipeline-integration)
@@ -26,7 +26,7 @@ The `@tixpay/engine` package is built to satisfy strict architectural invariants
 
 - **100% Pure TypeScript:** Zero React, zero React Native, zero Android/iOS native dependencies. Can run in Node.js, Bun, Web Workers, or React Native JS runtime.
 - **Deterministic Time-Travel Architecture:** No function inside the engine logic calls `new Date()` without arguments. Every function accepts an explicit `now: Date` parameter. This allows the simulator and world-clock slider to shift "today" forward/backward deterministically.
-- **Fail-Safe & Non-Throwing:** The engine never throws unhandled exceptions. Malformed SMS, unrecognized VPAs, or invalid URLs return `null` or `{ confidence: 0 }`.
+- **Fail-Safe & Non-Throwing:** The engine never throws unhandled exceptions. A malformed statement, an unrecognised counterparty, or an invalid URL returns `null`, an empty result with a populated `errors` list, or `{ confidence: 0 }`. A parser that throws on row 4,000 of someone's statement is a parser that loses the whole file.
 - **Paise Integer Accumulation:** While the public interface exports amounts in Rupees (2dp), internal accumulation and projections are computed in paise integers to eliminate floating-point rounding errors.
 - **IST Timezone Awareness (+5:30):** All day-key calculations (`YYYY-MM-DD`) and calendar offsets are evaluated against Indian Standard Time (IST) to prevent UTC midnight boundary shifts.
 
@@ -37,10 +37,33 @@ The `@tixpay/engine` package is built to satisfy strict architectural invariants
 ### 2.1 Foundation & UPI DeepLink Parser
 - **UPI QR Code Parser (`src/parse/deepLink.ts`):** Parses genuine merchant QR deep links (`upi://pay?pa=...&am=...&mc=...` and Android `intent://` wrappers). Extracts `vpa`, `payeeName`, `amount`, and `mcc` (Merchant Category Code). Generates deterministic transaction references (`TPxxxxxxx`).
 
-### 2.2 Bank SMS Parser & Mandate Discovery
-- **Bank SMS Regex Extractor (`src/parse/sms.ts`):** Parses SMS headers from 6 major Indian banks (`HDFCBK`, `SBIINB`, `ICICIB`, `KOTAKB`, `AXISBK`, `PNBSMS`) by matching trailing 6-character telecom entity headers (ignoring `AD-`/`VM-` prefixes and `-S`/`-T` suffixes).
-  - Extracts `direction` (`DEBIT` vs `CREDIT`), `amount`, `vpa`, `accountTail`, `balanceHint`, `refNo`, and `isFailure`.
-  - Rejects noise early (OTPs, promotional SMS, future debit notices, statement alerts).
+### 2.2 Statement Parser & Mandate Discovery
+
+**Bank statement (CSV) ingestion is the only input path.** The user picks one exported file
+through the system picker; no permission is held and nothing else on the device is readable.
+
+- **CSV Tokeniser (`src/parse/csv.ts`):** Dependency-free RFC 4180 tokeniser plus delimiter
+  detection (`,` `	` `;` `|`). Bank exports are not clean CSV — preamble rows, ragged
+  lengths, CRLF, BOMs, and quoted narrations containing commas — and a naive `split(',')`
+  shears those narrations in half.
+- **Statement Parser (`src/parse/statement.ts`):**
+  - **Tolerant column binding** across export layouts (HDFC `Withdrawal Amt.`/`Deposit Amt.`,
+    ICICI `Transaction Remarks`, SBI `Debit`/`Credit`, single-`Amount` + `Dr/Cr` variants).
+    Binding runs in two passes — every exact header match is claimed before any fuzzy one is
+    considered — and aliases of three characters or fewer are exact-only, so a `Dr/Cr`
+    direction column is never mistaken for a debit-amount column.
+  - **Header discovery** walks past the account-summary preamble every Indian bank writes
+    above the table, and mines it for bank name and account tail (last four digits only).
+  - **Day-first date parsing** (`26/03/26`, `26-Mar-2026`, `2026-03-26`, …) with a
+    per-row minute offset that preserves the file's own ordering for same-day rows.
+  - **Counterparty extraction:** the narration is split into fields *before* the VPA pattern
+    is applied, so `UPI-NETFLIX-netflix.rzp@icici-ICIC-4123` yields `netflix.rzp@icici` and
+    not the rail prefix. Narrations with no VPA — the NACH and ECS rails that carry the EMIs
+    and premiums actually worth warning about — get a stable synthesised key from the
+    merchant words, with reference numbers stripped.
+  - Extracts `direction`, `amount`, `vpa`, `accountTail`, `balanceHint`, `refNo`, `isFailure`.
+  - Returns an **import receipt** (`meta`): rows read, rows parsed, columns bound, rows
+    skipped and why. "We read 412 of 418 rows" is a claim the user can check.
 - **Mandate Discovery Engine (`src/detect/mandates.ts`):** Discovers recurring auto-debits without bank APIs.
   - Normalizes VPAs by stripping order numbers and transaction handles (`swiggy.payu.98241@hdfcbank` → `swiggy.payu@hdfcbank`).
   - Buckets transactions by `(normalizedVpa, amount ±5%)`.
@@ -50,7 +73,8 @@ The `@tixpay/engine` package is built to satisfy strict architectural invariants
     $$\text{EMI (Critical)} > \text{SIP (Critical)} > \text{Insurance (High)} > \text{Utility (Medium)} > \text{OTT (Low)}$$
 
 ### 2.3 Shadow Ledger & Forward Balance Curve
-- **Shadow Ledger (`src/project/ledger.ts`):** Reconstructs account balance chronologically from debit/credit transactions. Snaps to `balanceHint` values whenever a bank SMS states `Avl Bal`, measuring and reporting historical balance `drift`.
+- **Shadow Ledger (`src/project/ledger.ts`):** Reconstructs account balance chronologically from debit/credit transactions, snapping to the statement's stated running balance on every row that carries one.
+  - `drift` measures the error of our *inference* over a gap where nothing was stated. Two cases are excluded from it, for the same reason — neither measures inference error: the first hint (bootstrap, not drift) and any hint following another hint with nothing inferred between them. On a statement with a running-balance column, drift is therefore **structurally zero**, and the ledger stops being a shadow.
 - **Income Inference (`src/project/income.ts`):** Detects recurring credit streams:
   - **Salaried Income:** Fixed amount ($\pm 5\%$) landing on the same day of month ($\pm 2$ days).
   - **Irregular Income:** Variable freelance payouts evaluated over a rolling window.
@@ -82,7 +106,8 @@ The `@tixpay/engine` package is built to satisfy strict architectural invariants
 | `src/types.ts` | — | Domain interfaces & shared data contracts |
 | `src/money.ts` | `toPaise`, `parseAmount` | Safe currency conversion & Indian lakh grouping |
 | `src/time.ts` | `istDayKey`, `formatIstDate` | IST timezone conversions & date formatting |
-| `src/parse/sms.ts` | `parseSms()` | Indian bank SMS regex extraction pipeline |
+| `src/parse/csv.ts` | `parseCsv()`, `detectDelimiter()` | RFC 4180 tokeniser and delimiter detection |
+| `src/parse/statement.ts` | `parseStatementCsv()` | Bank statement → `Transaction[]` plus an import receipt |
 | `src/parse/deepLink.ts` | `parseUpiDeepLink()` | Standard UPI intent & QR code parser |
 | `src/detect/mandates.ts` | `detectMandates()` | Median-gap recurring mandate discovery |
 | `src/project/ledger.ts` | `buildLedger()` | Reconstructed shadow ledger & drift calculation |
@@ -128,7 +153,8 @@ The engine is protected by **15 test files containing 253 passing tests**. Below
 | `test/purity.test.ts` | 56 | **Architectural Rules:** Scans source files to enforce 0 `new Date()` calls without arguments, 0 React/Native dependencies, and pure TS exports. |
 | `test/useCase.test.ts` | 4 | **Live Demo Pitch Script:** End-to-end walkthrough of the 4 key stage demo beats (Initial State, Shortfall Detection, Pre-Payment Intercept, Bounce Guard Resolution). |
 | `test/pipeline.test.ts` | 30 | **Pipeline Integration:** Verifies `runPipeline()` end-to-end stats, parse floor (>70%), single account reconciliation (`4471`), and strict determinism. |
-| `test/parse.test.ts` | 39 | **Bank SMS Parser:** Validates `parseSms` against 30 hand-labelled real-world Indian bank SMS cases (HDFC, SBI, ICICI, Kotak, Axis, PNB, OTPs, promos). |
+| `test/statement.test.ts` | 47 | **Statement ingestion:** tokeniser edge cases, header binding across five bank layouts, every date and amount format, counterparty extraction, and refusal behaviour on files that are not statements. |
+| `test/appStore.test.ts` | 23 | **App wiring:** drives the real Zustand store through import → intercept → pay → rescue. Catches buttons wired to nothing, which typechecking cannot. |
 | `test/project.test.ts` | 32 | **Shadow Ledger & Projections:** Verifies chronological ledger walks, balance hint snapping, zero drift, and 30-point curve generation. |
 | `test/deepLink.test.ts` | 29 | **UPI QR Code Parsing:** Verifies `parseUpiDeepLink()` on static QRs, amount extraction, VPA shapes, and Android `intent://` URL wrappers. |
 | `test/demoCorpus.test.ts` | 25 | **Synthetic Corpus Generator:** Asserts that seed 42 produces 468 messages with exact expected mandate counts and shortfall dates. |
@@ -155,7 +181,7 @@ sequenceDiagram
     participant Intercept as evaluatePayment()
     participant Guard as projectWithPaused()
 
-    User->>Pipeline: 1. Launch App (Inbox: 468 SMS, Date: 2026-03-01)
+    User->>Pipeline: 1. Import statement (267 rows, Date: 2026-03-01)
     Pipeline-->>User: Discovers 8 Mandates, Ledger Bal: ₹21,597, 30-Day Curve
     
     Note over User,Pipeline: 2. Cash-Flow Calendar Shortfall
@@ -169,7 +195,7 @@ sequenceDiagram
 ```
 
 #### Step 1: Initializing App State (1 March 2026)
-- **Action:** User opens TiXPay. `runPipeline(inbox, NOW)` processes 468 raw SMS messages.
+- **Action:** User imports a statement. `runPipelineFromStatement(csv, NOW)` reads 267 rows.
 - **Output:** 
   - 343 financial transactions extracted (73.3% parse yield).
   - Primary account reconciled: **A/c 4471** (Shadow balance: ₹21,597, Drift: ₹0).

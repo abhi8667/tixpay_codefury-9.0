@@ -2,55 +2,110 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal } from 'react-native';
 import { t, typography, space, radius } from '../theme';
 import { Rupee } from '../components/Rupee';
+import { formatIstDate } from '@tixpay/engine';
+import type { Intervention } from '@tixpay/types';
 
 interface ConfirmActionModalProps {
   visible: boolean;
-  actionTitle: string;
+  /** The remedy the user picked. Null when the modal is closed. */
+  intervention: Intervention | null;
   onConfirm: () => void;
   onCancel: () => void;
 }
 
+/**
+ * Confirms one intervention.
+ *
+ * Every line here is read off the `Intervention` the engine produced. The
+ * previous version was hardcoded to Netflix — it announced "Keeps your ₹5,000
+ * SIP safe" no matter which remedy the user picked, and for a sweep it
+ * described a pause that was never going to happen.
+ */
 export const ConfirmActionModal: React.FC<ConfirmActionModalProps> = ({
   visible,
-  actionTitle,
+  intervention,
   onConfirm,
   onCancel,
 }) => {
+  if (!intervention) return null;
+
+  const { kind, target, amount, penaltyAvoided, savedMandates } = intervention;
+
+  const heading =
+    kind === 'PAUSE' ? 'Pause this mandate'
+    : kind === 'SHIFT' ? 'Move this debit'
+    : 'Sweep from your Keeper';
+
+  const name =
+    target?.displayName ?? (kind === 'SWEEP' ? 'Keeper reserve' : 'Selected mandate');
+
+  const detail =
+    kind === 'PAUSE' ? (target ? `Skipped on ${formatIstDate(target.nextDebit)}` : 'Skipped next cycle')
+    : kind === 'SHIFT' ? (target ? `Moves to ${formatIstDate(target.nextDebit)}` : 'Moved past your next income')
+    : 'Transferred into your account';
+
+  const badge = target?.displayName.slice(0, 1).toUpperCase() ?? '🏺';
+
   return (
     <Modal visible={visible} animationType="fade" transparent>
       <View style={styles.overlay}>
         <View style={styles.cardContainer}>
-          {/* Glowing Green Checkmark */}
           <View style={styles.checkCircleGlowing}>
             <Text style={styles.checkIcon}>✓</Text>
           </View>
 
-          <Text style={styles.title}>Action selected</Text>
-          <Text style={styles.subtitle}>We'll update your plan</Text>
+          <Text style={styles.title}>{heading}</Text>
+          <Text style={styles.subtitle}>{intervention.label}</Text>
 
-          {/* Selected Action Card */}
           <View style={styles.actionCard}>
             <View style={styles.netflixLogo}>
-              <Text style={styles.netflixN}>N</Text>
+              <Text style={styles.netflixN}>{badge}</Text>
             </View>
             <View style={styles.actionInfo}>
-              <Text style={styles.actionName}>Netflix</Text>
-              <Text style={styles.actionSub}>Paused on Mar 12</Text>
+              <Text style={styles.actionName}>{name}</Text>
+              <Text style={styles.actionSub}>{detail}</Text>
             </View>
-            <Rupee amount={649} style={styles.actionAmount} showPrefix={false} />
+            {amount ? (
+              <Rupee amount={amount} style={styles.actionAmount} showPrefix={false} />
+            ) : null}
           </View>
 
-          {/* Impact Checklist */}
           <View style={styles.impactBox}>
             <Text style={styles.impactTitle}>What this does</Text>
-            <View style={styles.impactRow}>
-              <Text style={styles.greenCheck}>✓</Text>
-              <Text style={styles.impactText}>Keeps your ₹5,000 SIP safe</Text>
-            </View>
-            <View style={styles.impactRow}>
-              <Text style={styles.greenCheck}>✓</Text>
-              <Text style={styles.impactText}>₹250 penalty avoided</Text>
-            </View>
+
+            {savedMandates.length > 0 ? (
+              savedMandates.slice(0, 3).map((m) => (
+                <View key={m.id} style={styles.impactRow}>
+                  <Text style={styles.greenCheck}>✓</Text>
+                  <Text style={styles.impactText}>
+                    Keeps your ₹{m.amount.toLocaleString('en-IN')} {m.displayName} safe
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <View style={styles.impactRow}>
+                <Text style={styles.greenCheck}>✓</Text>
+                <Text style={styles.impactText}>Lifts your balance back above the buffer</Text>
+              </View>
+            )}
+
+            {penaltyAvoided > 0 && (
+              <View style={styles.impactRow}>
+                <Text style={styles.greenCheck}>✓</Text>
+                <Text style={styles.impactText}>
+                  ₹{penaltyAvoided.toLocaleString('en-IN')} penalty avoided
+                </Text>
+              </View>
+            )}
+
+            {kind === 'SWEEP' && amount ? (
+              <View style={styles.impactRow}>
+                <Text style={styles.greenCheck}>·</Text>
+                <Text style={styles.impactText}>
+                  ₹{amount.toLocaleString('en-IN')} leaves your Keeper jar
+                </Text>
+              </View>
+            ) : null}
           </View>
 
           {/* CTAs */}

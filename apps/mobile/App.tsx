@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, Text, SafeAreaView, StatusBar, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { StyleSheet, View, SafeAreaView, StatusBar } from 'react-native';
 import { Header } from './src/components/Header';
 import { BottomTabBar, TabName } from './src/components/BottomTabBar';
 import { InsightsScreen } from './src/screens/InsightsScreen';
@@ -11,77 +11,75 @@ import { PaymentSuccessScreen } from './src/screens/PaymentSuccessScreen';
 import { KeeperScreen } from './src/screens/KeeperScreen';
 import { SimulatorDashboard } from './src/screens/SimulatorDashboard';
 import { OnboardingFlow } from './src/screens/onboarding/OnboardingFlow';
-import { t, space } from './src/theme';
-import type { Intervention } from '@tixpay/types';
+import { t } from './src/theme';
+import type { Intervention, Shortfall } from '@tixpay/types';
 import { useAppStore } from './store/useAppStore';
 
-export type ScreenMode =
-  | 'INSIGHTS'
-  | 'SHORTFALL_SHEET'
-  | 'CONFIRM_MODAL'
-  | 'MANDATE_HUB'
-  | 'PAY'
-  | 'PAY_SUCCESS'
-  | 'KEEPER'
-  | 'SIMULATOR'
-  | 'ONBOARDING';
+type ScreenMode = 'INSIGHTS' | 'MANDATE_HUB' | 'KEEPER' | 'SIMULATOR';
+
+interface PaidPayment {
+  amount: number;
+  payeeName: string;
+  vpa: string;
+}
 
 export default function App() {
   const [screenMode, setScreenMode] = useState<ScreenMode>('INSIGHTS');
   const [activeTab, setActiveTab] = useState<TabName>('Insights');
-  const [selectedActionLabel, setSelectedActionLabel] = useState('Pause Netflix');
-  const [selectedIntervention, setSelectedIntervention] = useState<Intervention | undefined>();
+  const [payVisible, setPayVisible] = useState(false);
 
-  const togglePauseMandate = useAppStore((state) => state.togglePauseMandate);
-  const mandates = useAppStore((state) => state.mandates());
+  /** The shortfall the user tapped. Drives which remedies the sheet offers. */
+  const [openShortfall, setOpenShortfall] = useState<Shortfall | null>(null);
+  const [pendingIntervention, setPendingIntervention] = useState<Intervention | null>(null);
+  const [paid, setPaid] = useState<PaidPayment | null>(null);
 
-  const screens: { id: ScreenMode; label: string }[] = [
-    { id: 'INSIGHTS', label: '📊 Insights' },
-    { id: 'SHORTFALL_SHEET', label: '⚠️ Shortfall Sheet' },
-    { id: 'CONFIRM_MODAL', label: '✓ Confirm Modal' },
-    { id: 'MANDATE_HUB', label: '🛡️ Mandates' },
-    { id: 'PAY', label: '💳 Pay Intercept' },
-    { id: 'PAY_SUCCESS', label: '🎉 Pay Success' },
-    { id: 'KEEPER', label: '🏺 Keeper Jar' },
-    { id: 'SIMULATOR', label: '🎛️ Simulator' },
-    { id: 'ONBOARDING', label: '🚀 Onboarding' },
-  ];
+  const hasData = useAppStore((state) => state.hasData());
+  const applyIntervention = useAppStore((state) => state.applyIntervention);
 
-  if (screenMode === 'ONBOARDING') {
-    return <OnboardingFlow onFinishOnboarding={() => setScreenMode('INSIGHTS')} />;
+  // Onboarding is the entry point, not a screen you can navigate to. Until a
+  // statement is imported there is genuinely nothing to render — every number
+  // in this app is derived from one, and an empty dashboard with placeholder
+  // figures is exactly the kind of thing this build refuses to show.
+  const onboardingDone = hasData;
+
+  const closeSheet = useCallback(() => setOpenShortfall(null), []);
+
+  const confirmIntervention = useCallback(() => {
+    if (pendingIntervention) applyIntervention(pendingIntervention);
+    setPendingIntervention(null);
+    setOpenShortfall(null);
+    setScreenMode('INSIGHTS');
+    setActiveTab('Insights');
+  }, [pendingIntervention, applyIntervention]);
+
+  const goToTab = useCallback((tab: TabName) => {
+    setActiveTab(tab);
+    if (tab === 'Pay') {
+      setPayVisible(true);
+      return;
+    }
+    if (tab === 'Insights') setScreenMode('INSIGHTS');
+    else if (tab === 'Keeper') setScreenMode('KEEPER');
+    else if (tab === 'Mandates') setScreenMode('MANDATE_HUB');
+  }, []);
+
+  if (!onboardingDone) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={t.bg} />
+        <OnboardingFlow
+          onFinishOnboarding={() => {
+            setScreenMode('INSIGHTS');
+            setActiveTab('Insights');
+          }}
+        />
+      </SafeAreaView>
+    );
   }
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={t.bg} />
-
-      {/* Screen Direct Switcher Bar */}
-      <View style={styles.switcherContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.switcherScroll}>
-          <Text style={styles.switcherLabel}>Direct Screen View: </Text>
-          {screens.map((sc) => {
-            const isActive = screenMode === sc.id;
-            return (
-              <TouchableOpacity
-                key={sc.id}
-                style={[styles.switcherChip, isActive && styles.switcherChipActive]}
-                onPress={() => {
-                  setScreenMode(sc.id);
-                  if (sc.id === 'INSIGHTS') setActiveTab('Insights');
-                  else if (sc.id === 'PAY') setActiveTab('Pay');
-                  else if (sc.id === 'KEEPER') setActiveTab('Card');
-                  else if (sc.id === 'MANDATE_HUB') setActiveTab('More');
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
-                  {sc.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
 
       <Header
         onMenuPress={() => setScreenMode('SIMULATOR')}
@@ -97,66 +95,63 @@ export default function App() {
           <KeeperScreen onBack={() => setScreenMode('INSIGHTS')} />
         ) : (
           <InsightsScreen
-            onTapDip={() => setScreenMode('SHORTFALL_SHEET')}
-            onOpenKeeper={() => setScreenMode('KEEPER')}
-            onOpenMandates={() => setScreenMode('MANDATE_HUB')}
+            onTapDip={(shortfall) => setOpenShortfall(shortfall)}
+            onOpenKeeper={() => {
+              setScreenMode('KEEPER');
+              setActiveTab('Keeper');
+            }}
+            onOpenMandates={() => {
+              setScreenMode('MANDATE_HUB');
+              setActiveTab('Mandates');
+            }}
+            onOpenPay={() => {
+              setPayVisible(true);
+              setActiveTab('Pay');
+            }}
           />
         )}
       </View>
 
-      {/* Direct Shortfall Bottom Sheet */}
       <ShortfallSheet
-        visible={screenMode === 'SHORTFALL_SHEET'}
-        onClose={() => setScreenMode('INSIGHTS')}
-        onSelectAction={(actionLabel, intervention) => {
-          setSelectedActionLabel(actionLabel);
-          setSelectedIntervention(intervention);
-          setScreenMode('CONFIRM_MODAL');
-        }}
+        visible={openShortfall !== null}
+        shortfall={openShortfall}
+        onClose={closeSheet}
+        onSelectAction={(intervention) => setPendingIntervention(intervention)}
       />
 
-      {/* Direct Confirm Action Modal */}
       <ConfirmActionModal
-        visible={screenMode === 'CONFIRM_MODAL'}
-        actionTitle={selectedActionLabel}
-        onConfirm={() => {
-          // Apply exactly what the engine proposed. The previous version
-          // searched the mandate list for "netflix" by name, which silently did
-          // the wrong thing for every other intervention the engine can offer.
-          const target = selectedIntervention?.target;
-          if (target) {
-            togglePauseMandate(target.id);
-          }
+        visible={pendingIntervention !== null}
+        intervention={pendingIntervention}
+        onConfirm={confirmIntervention}
+        onCancel={() => setPendingIntervention(null)}
+      />
+
+      <PayScreen
+        visible={payVisible}
+        onClose={() => {
+          setPayVisible(false);
+          setActiveTab('Insights');
           setScreenMode('INSIGHTS');
         }}
-        onCancel={() => setScreenMode('INSIGHTS')}
-      />
-
-      {/* Direct Payment Intercept Screen */}
-      <PayScreen
-        visible={screenMode === 'PAY'}
-        onClose={() => setScreenMode('INSIGHTS')}
-        onPaySuccess={() => setScreenMode('PAY_SUCCESS')}
-      />
-
-      {/* Direct Payment Success Screen */}
-      <PaymentSuccessScreen
-        visible={screenMode === 'PAY_SUCCESS'}
-        amount={8000}
-        payeeName="Tarun Aadhithya V Sureendran Minor"
-        onDismiss={() => setScreenMode('INSIGHTS')}
-      />
-
-      <BottomTabBar
-        activeTab={activeTab}
-        onTabChange={(tab) => {
-          setActiveTab(tab);
-          if (tab === 'Insights') setScreenMode('INSIGHTS');
-          else if (tab === 'Pay') setScreenMode('PAY');
-          else if (tab === 'Card') setScreenMode('KEEPER');
-          else if (tab === 'More') setScreenMode('MANDATE_HUB');
+        onPaySuccess={(payment) => {
+          setPayVisible(false);
+          setPaid(payment);
         }}
       />
+
+      <PaymentSuccessScreen
+        visible={paid !== null}
+        amount={paid?.amount ?? 0}
+        payeeName={paid?.payeeName ?? ''}
+        vpa={paid?.vpa ?? ''}
+        onDismiss={() => {
+          setPaid(null);
+          setActiveTab('Insights');
+          setScreenMode('INSIGHTS');
+        }}
+      />
+
+      <BottomTabBar activeTab={activeTab} onTabChange={goToTab} />
     </SafeAreaView>
   );
 }
@@ -165,44 +160,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: t.bg,
-  },
-  switcherContainer: {
-    backgroundColor: '#141824',
-    borderBottomWidth: 1,
-    borderBottomColor: t.border,
-    paddingVertical: 6,
-  },
-  switcherScroll: {
-    alignItems: 'center',
-    paddingHorizontal: space.sm,
-  },
-  switcherLabel: {
-    color: t.warn,
-    fontSize: 11,
-    fontWeight: '800',
-    marginRight: 6,
-  },
-  switcherChip: {
-    backgroundColor: t.surfaceHi,
-    borderColor: t.border,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    marginRight: 6,
-  },
-  switcherChipActive: {
-    backgroundColor: t.warn,
-    borderColor: t.warn,
-  },
-  chipText: {
-    color: t.textDim,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  chipTextActive: {
-    color: '#000000',
-    fontWeight: '800',
   },
   content: {
     flex: 1,

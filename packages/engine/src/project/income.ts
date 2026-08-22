@@ -49,9 +49,9 @@ function stdDev(xs: number[]): number {
 /**
  * Group key for a credit.
  *
- * Salary SMS carry no VPA — they read "towards SALARY MAR2026 ACME TECH PVT
- * LTD" — so we fall back to the merchant hint with digits stripped, which makes
- * MAR2026 and FEB2026 land in the same bucket.
+ * A salary credit carries no VPA — the narration reads "NEFT CR-ACME TECH PVT
+ * LTD-SALARY MAR2026" — so we fall back to the narration with digits stripped,
+ * which makes MAR2026 and FEB2026 land in the same bucket.
  */
 function sourceKey(t: Transaction): string {
   if (t.vpa) return normalizeVpa(t.vpa);

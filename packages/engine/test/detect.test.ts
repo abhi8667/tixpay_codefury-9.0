@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { parseSms } from '../src/parse';
+import { DEMO_TXNS } from './_corpus';
 import { detectMandates, normalizeVpa } from '../src/detect';
-import demoInbox from '../fixtures/demo_inbox.json';
 import demoExpectations from '../fixtures/demo_expectations.json';
-import type { RawSms, Transaction } from '../src/types';
+import type { Transaction } from '../src/types';
 
 describe('normalizeVpa', () => {
   it('strips gateway handles, numeric suffixes, and handles lowercase', () => {
@@ -14,14 +13,9 @@ describe('normalizeVpa', () => {
 
 describe('detectMandates against demo corpus', () => {
   const now = new Date(demoExpectations.now);
-  const txns: Transaction[] = [];
+  const txns: Transaction[] = DEMO_TXNS;
 
-  for (const raw of demoInbox as RawSms[]) {
-    const parsed = parseSms(raw);
-    if (parsed) txns.push(parsed);
-  }
-
-  it('detects all expected mandates from synthetic inbox', () => {
+  it('detects all expected mandates from the statement', () => {
     const mandates = detectMandates(txns, now);
 
     expect(mandates.length).toBeGreaterThanOrEqual(8);

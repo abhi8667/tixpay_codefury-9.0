@@ -5,14 +5,15 @@ import { startOfIstDay } from '../time';
 /**
  * The shadow ledger.
  *
- * We cannot read the real account balance — that needs a UPI PIN inside a
+ * We cannot query the live account balance — that needs a UPI PIN inside a
  * licensed PSP app. So we reconstruct it: walk the transactions forward, and
- * whenever an SMS states a balance, snap to it and record how far our inferred
+ * whenever a row states a balance, snap to it and record how far our inferred
  * figure had drifted.
  *
- * `drift` is worth showing on stage. "Our inferred balance tracks the bank's
- * stated balance to within ₹X" is a much stronger claim than "we estimate your
- * balance", and it is measured, not asserted.
+ * A statement with a running-balance column states one on EVERY row, so nothing
+ * is ever inferred and `drift` is structurally zero — the ledger stops being a
+ * shadow. Drift stays meaningful for exports that omit the balance column,
+ * which is exactly when it is worth reporting.
  */
 
 export interface BuildLedgerOptions {
@@ -93,6 +94,10 @@ export function buildLedger(
 
   let paise = 0;
   let lastReconciledAt: Date | undefined;
+  // Whether anything has been INFERRED since the last stated balance. Drift is
+  // the error of that inference, so with nothing inferred there is no drift to
+  // report — see the guard below.
+  let inferredSinceHint = false;
 
   for (const t of scoped) {
     // A failure moves nothing.
@@ -103,15 +108,27 @@ export function buildLedger(
     let reconciled = false;
     if (t.balanceHint !== undefined) {
       const stated = toPaise(t.balanceHint);
-      // The FIRST hint is not drift, it is bootstrap. We start from zero with no
-      // idea what the account holds; the first stated balance is where we learn
-      // it. Counting that gap as drift reports a ₹38,000 error on a ledger that
-      // is in fact exact, and destroys the one honest number in the pitch.
-      if (hintTimestamps.length > 0) drifts.push(Math.abs(paise - stated));
+      // Two things are excluded from the drift statistics, for the same reason:
+      // neither is a measurement of how far our inference wandered.
+      //
+      //   1. The FIRST hint is bootstrap, not drift. We start from zero with no
+      //      idea what the account holds; the first stated balance is where we
+      //      learn it. Counting that gap reports a ₹38,000 error on a ledger
+      //      that is in fact exact.
+      //   2. A hint that follows another hint with nothing inferred in between.
+      //      A statement with a running-balance column states the balance on
+      //      every row, so we never infer at all — and the difference we would
+      //      be measuring is just the row's own amount, which is not an error.
+      if (hintTimestamps.length > 0 && inferredSinceHint) {
+        drifts.push(Math.abs(paise - stated));
+      }
       paise = stated; // snap
       reconciled = true;
+      inferredSinceHint = false;
       lastReconciledAt = t.timestamp;
       hintTimestamps.push(t.timestamp.getTime());
+    } else {
+      inferredSinceHint = true;
     }
 
     checkpoints.push({ t: t.timestamp.getTime(), paise, reconciled });

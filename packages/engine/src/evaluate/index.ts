@@ -30,12 +30,11 @@ export function evaluatePayment(
     id: `intent_${now.getTime()}`,
     direction: 'DEBIT',
     amount: intent.amount,
-    bank: 'HDFC', // Default placeholder
+    bank: 'HDFC', // Placeholder; the hypothetical never leaves this function
     timestamp: now,
     isFailure: false,
     source: 'INTENT',
     vpa: intent.vpa,
-    raw: { address: '', body: 'intent', date: now.getTime() },
   };
 
   const hypotheticalLedger = withTransaction(ledger, hypotheticalTxn);

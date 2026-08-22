@@ -9,8 +9,7 @@ describe('attribute module', () => {
     amount,
     bank: 'HDFC',
     timestamp: new Date(time),
-    isFailure: true,
-    raw: { address: '', body: '', date: time }
+    isFailure: true
   });
 
   it('returns UNKNOWN if no reliable balance hints exist within 7 days', () => {

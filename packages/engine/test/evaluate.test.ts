@@ -11,8 +11,7 @@ describe('evaluate module', () => {
   const dummyLedger: ShadowLedger = {
     txns: [{
       id: 't0', direction: 'CREDIT', amount: 0, bank: 'HDFC', 
-      timestamp: new Date(), isFailure: false, balanceHint: 10000, 
-      raw: { address: '', body: '', date: 0 }
+      timestamp: new Date(), isFailure: false, balanceHint: 10000 
     }],
     currentBalance: 10000,
     drift: 0,

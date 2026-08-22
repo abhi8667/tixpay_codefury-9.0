@@ -10,7 +10,8 @@ import { QrScanner } from './QrScanner';
 interface PayScreenProps {
   visible: boolean;
   onClose: () => void;
-  onPaySuccess: () => void;
+  /** Hands the completed payment up so the receipt shows what was actually paid. */
+  onPaySuccess: (payment: { amount: number; payeeName: string; vpa: string }) => void;
 }
 
 /** Where the pay sheet starts when nothing has been scanned. */
@@ -43,7 +44,7 @@ export const PayScreen: React.FC<PayScreenProps> = ({
   // moves.
   const pipelineCache = useAppStore((state) => state._pipelineCache);
 
-  const currentBalance = ledger?.currentBalance ?? (curve[0]?.balance ?? 12450);
+  const currentBalance = ledger?.currentBalance ?? curve[0]?.balance ?? 0;
   const amountVal = parseFloat(amountStr) || 0;
 
   /**
@@ -81,10 +82,9 @@ export const PayScreen: React.FC<PayScreenProps> = ({
   };
 
   const handleConfirmPay = () => {
-    if (amountVal > 0) {
-      executePaymentStore(amountVal, payee.name, payee.vpa);
-    }
-    onPaySuccess();
+    if (amountVal <= 0) return;
+    executePaymentStore(amountVal, payee.name, payee.vpa);
+    onPaySuccess({ amount: amountVal, payeeName: payee.name, vpa: payee.vpa });
   };
 
   return (
