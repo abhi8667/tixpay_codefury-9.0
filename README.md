@@ -1,6 +1,6 @@
 # TiXPay — On-Device Cash-Flow Guard
 
-> **React Native + Expo · Pure TypeScript engine · 302 tests · Zero network calls in the core engine**
+> **React Native + Expo · Pure TypeScript engine · 349 tests in under 2 seconds · Zero network calls in the core engine**
 
 TiXPay reads one bank statement you hand it, discovers your recurring auto-debits, projects
 your balance 30 days forward, and stops you at the moment of payment when that payment is
@@ -23,7 +23,7 @@ product follows from.
 | **Permissions** | `CAMERA` only, for QR scanning, requested at the moment of use |
 | **Network** | The engine and every screen except Money Coach: none. Money Coach (optional, see below) is the one deliberate exception — it calls the Gemini API, and sends it only already-computed aggregates, never a raw transaction |
 | **Storage** | None. Transactions live in memory and die with the process |
-| **SMS** | Not read. `READ_SMS` and `RECEIVE_SMS` are explicitly blocked in the manifest |
+| **SMS** | Not read. `READ_SMS` and `RECEIVE_SMS` are removed at manifest-merge time — verify it yourself with `aapt2 dump badging apk/tixpay-latest.apk`, which lists exactly `CAMERA`, `INTERNET` and `VIBRATE` |
 
 An earlier build read the SMS inbox. We removed it. `READ_SMS` means the ability to read
 banking OTPs, it is a restricted permission on Google Play that expense tracking does not
@@ -41,6 +41,8 @@ The privacy claim is asserted by the test suite, not just by this file: see
 
 ## 🚀 What it does
 
+### The core: cash-flow guard
+
 1. **Pre-payment intercept (`evaluatePayment`)** — the headline.
    Scan a UPI QR or type an amount. The verdict is recomputed **on every keystroke**
    against a hypothetical 30-day curve: does this payment create a new shortfall, deepen an
@@ -52,8 +54,10 @@ The privacy claim is asserted by the test suite, not just by this file: see
    counterparty and amount (±5%), scored `0.6·countScore + 0.4·varianceScore`, then ranked
    EMI → SIP → Insurance → Utility → OTT.
 
-3. **Shadow ledger and 30-day projection** — the statement replayed forward over detected
-   mandates and inferred income (salaried and irregular streams are modelled separately).
+3. **Shadow ledger and 30/60/90-day projection** — the statement replayed forward over
+   detected mandates and inferred income (salaried and irregular streams are modelled
+   separately). The horizon is real state, not a view filter: the guard, the curve and every
+   intervention are recomputed against it.
 
 4. **Bounce guard and one-tap remedies** — shortfalls are days the curve dips below a ₹500
    buffer. The guard proposes the smallest set of **pauses, sweeps, or date shifts** that
@@ -63,8 +67,11 @@ The privacy claim is asserted by the test suite, not just by this file: see
    account"* debits the jar and credits the account, so a rescued curve is funded rather
    than asserted.
 
-6. **Spend Insights** — category-wise spend over a trailing window, with the % change vs
-   the window before it, off the same categorised transactions the mandate detector reads.
+### WealthTech: the analysis layer
+
+6. **Spend Insights** — category-wise spend over a trailing 30/60/90-day window, with the %
+   change vs the window before it, plus per-merchant and per-day breakdowns — off the same
+   categorised transactions the mandate detector reads.
 
 7. **Goals** — Keeper generalised into a named, dated savings goal. "On track" is computed
    from the account's actual trailing surplus (`computeAvgMonthlySurplus`), never an assumed
@@ -74,16 +81,58 @@ The privacy claim is asserted by the test suite, not just by this file: see
    shortfall projection the guard already trusts. Answers "can I afford this?" with a dated,
    rupee-figure verdict instead of a rule of thumb.
 
-9. **Money Coach** — a chat interface over items 6–8, grounded via Gemini function-calling.
-   See "What the Money Coach is (and isn't)" below.
+9. **Subscription audit (`auditSubscriptions`)** — everything charging the account on
+   repeat, priced per year. Deliberately *not* `detectMandates`: that one is strict because
+   a false mandate poisons the projected curve, while this one asks the cheaper question
+   ("what are you paying for on repeat?") with looser tolerances and never touches the
+   projection. On a student's UPI account with no auto-debits at all — the case the strict
+   detector returns nothing for — this is the feature that still has something true to say.
+
+10. **Money Map (`computeMoneyMap`)** — the theme brief asks for investments spread across
+    platforms pulled into one view. We cannot see holdings, and inventing a portfolio value
+    would be the most dishonest thing this app could do. So it consolidates **commitments
+    and run-rates** instead of balances, and says so on the screen: *"You are investing
+    ₹7,000 a month across 2 platforms"* is defensible; *"your portfolio is worth ₹4.2 lakh"*
+    is not. Opens on a one-line health verdict.
+
+11. **Risk Profile (`computeRiskProfile`)** — done the way the regulated version is done:
+    **attitude and capacity scored separately, and the lower of the two wins.** A five-
+    question quiz measures how someone feels about risk on a calm afternoon; the statement
+    can measure whether their account would survive the drawdown, so `capacityScore` is
+    computed from the emergency buffer, savings rate, and committed share of income. When
+    capacity is the binding constraint, the screen says which number capped it and why.
+    Maps to a broad asset mix and stops there — it is not advice about a security.
+
+12. **Money Coach** — a chat interface over items 6–11, grounded via Gemini
+    function-calling. Reachable from the chat bar at the top of the Home screen, which sends
+    your question straight into the conversation. See "What the Money Coach is (and isn't)".
+
+### The app around it
+
+13. **Onboarding** — mobile + OTP, PAN-shaped identity check, bank account discovery, UPI
+    PIN setup (entered twice, and the PIN is what every later PIN prompt is checked
+    against), card linking, then statement import and the analysis pass. Nothing is
+    pre-filled; you onboard with your own details.
+
+14. **Home** — scan-and-pay hero, quick actions, recent payees drawn from the statement's
+    real counterparties, and an **Account Insights card that starts hidden**. Revealing the
+    balance, safe-to-spend and Keeper reserve requires the UPI PIN, with no biometric
+    bypass on that particular gate.
+
+15. **Everyday Utilities** — multi-step biller flows for electricity, mobile recharge and
+    FASTag, each running through the same pre-payment cash-flow guard as any other payment.
+
+16. **Simulator dashboard** (☰) — World Clock scenario presets, horizon control, and
+    redaction toggle, for driving the demo.
 
 ---
 
 ## 🧠 How the intelligence works — and what it is not
 
-TiXPay contains **no machine-learning model, no neural network, and no LLM.** No weights,
-no inference runtime, no API keys. This is deliberate, and it is worth saying out loud
-before anyone asks.
+The TiXPay **engine** contains no machine-learning model, no neural network, and no LLM.
+No weights, no inference runtime. This is deliberate, and it is worth saying out loud
+before anyone asks. (Money Coach, the one LLM surface, is scoped narrowly and described
+below.)
 
 What the engine actually is: a **deterministic statistical inference layer** over a bank
 statement. Every "insight" the app shows is arithmetic you can read, step through, and
@@ -96,6 +145,7 @@ unit-test.
 | Merchant category (MCC) | Classifier | VPA and narration heuristics over a seed lookup table, every result carrying an explicit confidence score. |
 | Balance projection | Time-series forecasting | A ledger replayed forward over detected mandates and inferred income. Pure accounting. |
 | Interventions | Recommender system | Constraint search: the smallest set of pauses, sweeps or shifts that lifts the curve above the ₹500 buffer — each **verified** against a re-projection before being offered. |
+| Risk profiling | Personality model | Two independent scores — a questionnaire for attitude, statement-derived ratios for capacity — with the lower one binding. |
 
 ### Why this is the right call here, not a shortcut
 
@@ -103,33 +153,34 @@ unit-test.
   show the exact six statement rows and the median gap that produced it. In personal
   finance, an unexplainable number is a number nobody acts on.
 - **Deterministic.** Same file, same `now`, same output — every time. That is why the whole
-  engine is covered by **281 tests that run in under a second** instead of by eyeballing an
-  APK.
+  engine is covered by **349 tests that run in under two seconds** instead of by eyeballing
+  an APK.
 - **Genuinely on-device.** Zero network calls, zero bytes leave the phone, runs on a ₹8,000
   Android device with no accelerator.
 - **Cold-start honest.** It works on the third occurrence of a mandate, not after enough
   data to train on.
 
 If a judge asks **"where's the AI?"** about the engine — Spend Insights, Goals, SIP Check,
-mandate discovery, projection, guard — answer plainly: *"There isn't one, and that's a
-design decision. Here's the arithmetic instead."* Do not hedge, and do not call a regex
-"NLP." The one place an LLM appears is Money Coach, described next, and it is scoped
-narrowly on purpose.
+subscriptions, Money Map, Risk Profile, mandate discovery, projection, guard — answer
+plainly: *"There isn't one, and that's a design decision. Here's the arithmetic instead."*
+Do not hedge, and do not call a regex "NLP." The one place an LLM appears is Money Coach.
 
 ### What the Money Coach is (and isn't)
 
-Money Coach is a chat screen over Gemini (`gemini-3.1-flash-lite`), added because it's
-useful and because the WealthTech track requires a conversational interface. It is **not**
-a general-purpose chatbot layered over raw data:
+Money Coach is a chat screen over Gemini (`gemini-3.1-flash-lite`, set in
+`apps/mobile/src/config.ts`), added because it's useful and because the WealthTech track
+requires a conversational interface. It is **not** a general-purpose chatbot layered over
+raw data:
 
 - It never receives a transaction, account number, or balance history. `coachTools.ts`
-  exposes five tool calls — spend breakdown, goal status, SIP affordability, mandate list,
-  safe-to-spend — each returning only an aggregate the engine already computed.
+  exposes five tool calls — `get_spend_breakdown`, `get_goal_status`,
+  `check_sip_affordability`, `get_mandates`, `get_safe_to_spend` — each returning only an
+  aggregate the engine already computed.
 - The system prompt forbids stating any rupee figure, percentage, or date that didn't come
   back from a tool call in that conversation, so it narrates the engine's numbers rather
   than inventing its own.
 - Everything else in the app — the pre-payment intercept, mandate discovery, the balance
-  curve, the guard — is unchanged: deterministic, offline, and covered by the same 302
+  curve, the guard — is unchanged: deterministic, offline, and covered by the same 349
   tests.
 
 Requires `EXPO_PUBLIC_GEMINI_API_KEY` in `apps/mobile/.env` (see `.env.example`). Without
@@ -148,8 +199,9 @@ explaining what's missing instead of crashing.
 ### What is simulated
 
 Payments. TiXPay is not a PSP and holds no UPI licence, so confirming a payment applies a
-debit to the local ledger and says **"SIMULATED — no money moved"** on the receipt. QR
-scanning and `parseUpiDeepLink` are real — a genuine shop QR scans and resolves. The
+debit to the local ledger and says **"SIMULATED — no money moved"** on the receipt. The UPI
+PIN is likewise a local 4-digit gate, labelled as simulated on the screen where it is set.
+QR scanning and `parseUpiDeepLink` are real — a genuine shop QR scans and resolves. The
 analysis is the product; the rail is not.
 
 ---
@@ -168,7 +220,7 @@ pnpm install
 pnpm test
 ```
 
-302 tests across 16 files, under a second. Includes `appStore.test.ts`, which drives the
+349 tests across 17 files, under two seconds. Includes `appStore.test.ts`, which drives the
 real app store through the whole demo headlessly — import, intercept, pay, rescue.
 
 ### Money Coach's API key (optional)
@@ -177,11 +229,10 @@ Only needed for the Money Coach chat screen — everything else runs with no set
 
 ```bash
 cp apps/mobile/.env.example apps/mobile/.env
-# then put your key in apps/mobile/.env:
-# EXPO_PUBLIC_GEMINI_API_KEY=your-key-here
 ```
 
-Restart the dev server after adding it — Expo inlines `EXPO_PUBLIC_*` vars at build time.
+Then put your key in `apps/mobile/.env` as `EXPO_PUBLIC_GEMINI_API_KEY=...` and restart the
+dev server — Expo inlines `EXPO_PUBLIC_*` vars at build time.
 
 ### The app, in a browser
 
@@ -189,23 +240,24 @@ Restart the dev server after adding it — Expo inlines `EXPO_PUBLIC_*` vars at 
 node scripts/dev-web.mjs --port 8090
 ```
 
-No device or emulator needed. Opens on the import screen; **"Try it with a sample
-statement"** loads the bundled corpus.
+No device or emulator needed. Opens on the splash, then onboarding; **"⚡ Skip to demo"**
+jumps straight in with the bundled sample statement.
 
 ### The app, on an Android device
 
+The release APK builds with a single script from the repo root. It uses the pinned JDK and
+Android SDK under `.tools/`, so it needs nothing installed globally:
+
+```cmd
+build-apk.bat
+```
+
+The signed APK is copied to `apk/tixpay-latest.apk` when it finishes.
+
+For a dev build against a running Metro server instead:
+
 ```bash
 pnpm --filter tixpay-mobile android
-```
-
-Or build the APK by hand:
-
-```bash
-cd apps/mobile/android && ./gradlew app:assembleDebug --console=plain
-```
-
-```bash
-adb install -r apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ### Typecheck everything
@@ -213,6 +265,28 @@ adb install -r apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
 ```bash
 pnpm typecheck
 ```
+
+---
+
+## 📱 Android specifics
+
+- **Launcher icon** — generated from `logo.jpeg` into every density, plus an
+  `mipmap-anydpi-v26` adaptive icon with a monochrome layer for themed icons.
+- **Status bar hidden** app-wide, via `WindowInsetsControllerCompat` in `MainActivity.kt`
+  rather than `android:windowFullscreen` — the legacy flag hides the bar but breaks
+  `adjustResize`, which would put the soft keyboard on top of the chat bar and every
+  onboarding field.
+- **Hardware back** is handled by a nav stack in `App.tsx` (`src/lib/useBackHandler.ts`):
+  it dismisses the topmost layer first, then pops one screen, and only exits the app from
+  Home. Every `Modal` also carries an `onRequestClose`, because RN modals swallow the back
+  press before any `BackHandler` sees it.
+- **Permissions** are stripped with `tools:node="remove"` entries in the committed
+  `AndroidManifest.xml`. `plugins/withMinimalPermissions.js` declares the same list, but it
+  only runs during `expo prebuild` — and since `android/` is committed and built directly,
+  prebuild never runs, so the plugin alone was not enough. The merger rule is what actually
+  holds, because it removes a permission no matter which transitive dependency asked for it.
+  The shipped APK declares `CAMERA`, `INTERNET`, `VIBRATE`, `ACCESS_NETWORK_STATE` and
+  Expo's own receiver permission — nothing else.
 
 ---
 
@@ -224,17 +298,17 @@ see on stage is what CI checks.
 
 **Moment 0 — the import (30 seconds, and it is the privacy pitch)**
 
-Open the app. It starts on **Import your statement**, not on a dashboard, because there is
-genuinely nothing to show before a file is chosen. Tap **Try it with a sample statement**.
-The analysis screen reports what was actually read: *267 of 267 rows · HDFC ••4471 · 8
-auto-debits found*.
+Onboard with your own number and name, or tap **⚡ Skip to demo**. The import screen is the
+first thing with data on it, because there is genuinely nothing to show before a file is
+chosen. Tap **Try it with a sample statement**. The analysis screen reports what was
+actually read: *267 of 267 rows · HDFC ••4471 · 8 auto-debits found*.
 
 > Say out loud: *"No SMS permission, no bank login, no network. One file, and it never
 > leaves the phone."*
 
 **Moment 1 — the intercept (the headline)**
 
-1. Insights opens clear: balance **₹21,597**, lowest projected **₹4,900**, no shortfalls.
+1. Insights opens clear: balance **₹21,597**, no shortfalls in the next 30 days.
    *"Right now this person is fine."*
 2. **Pay** → type **₹500**. Amber: *"Better paid by card — swipe your Amex SmartEarn."* No
    panic, just a better rail.
@@ -258,9 +332,20 @@ auto-debits found*.
 7. Tap the dip. The engine offers what it computed: a **₹4,500 sweep from your Keeper**
    (₹12,450 available) or **pausing the ₹12,450 Bajaj EMI** — each naming exactly which
    mandates it saves.
-8. Confirm one. The curve re-projects for real, *Safe to Spend* jumps to **₹8,850**, and the
-   jar visibly drops if you swept. Green means the projection genuinely cleared, not that a
+8. Confirm one. The curve re-projects for real, *Safe to Spend* jumps back up, and the jar
+   visibly drops if you swept. Green means the projection genuinely cleared, not that a
    button was pressed.
+
+**Moment 3 — the WealthTech tools**
+
+From Insights → **Tools**: Spend Insights, Recurring, Money Map, Risk Profile, SIP Check,
+Money Coach. The two worth demoing:
+
+- **Risk Profile** — answer the five questions aggressively. The profile still comes back
+  capped, and the screen names the capacity figure that capped it.
+- **Money Coach** — type into the chat bar on Home. Ask *"what can I safely spend today?"*
+  and it answers with the same rupee figure Insights shows, because it got it from a tool
+  call rather than from the model.
 
 **Scenario presets** (☰ → Simulator) are dates, not doctored files:
 
@@ -284,21 +369,31 @@ tixpay/
 │   │   ├── src/
 │   │   │   ├── parse/          # CSV tokeniser, statement parser, UPI QR deep links
 │   │   │   ├── detect/         # Median-gap recurring mandate discovery
-│   │   │   ├── project/        # Ledger, income inference, 30-day balance curve
+│   │   │   ├── project/        # Ledger, income inference, balance curve
 │   │   │   ├── guard/          # Shortfall finder & verified intervention search
+│   │   │   ├── analyze/        # Spend, goals, SIP check, subscriptions,
+│   │   │   │                   #   Money Map, health verdict, risk profile
 │   │   │   ├── attribute/      # Failed-transaction cause classifier
 │   │   │   ├── route/          # MCC resolver & card router
 │   │   │   ├── evaluate/       # The pre-payment intercept
 │   │   │   ├── pipeline.ts     # runPipeline / runPipelineFromStatement
 │   │   │   └── types.ts        # The shared contract
 │   │   ├── fixtures/           # demo_statement.csv — the synthetic demo corpus
-│   │   └── test/               # 281 tests, including the app-store wiring suite
+│   │   └── test/               # 349 tests, including the app-store wiring suite
 │   └── types/                  # Re-exports the engine contract (never a copy of it)
 ├── apps/
 │   └── mobile/                 # React Native + Expo client
-│       ├── src/screens/        # Insights, Pay, ShortfallSheet, MandateHub, Keeper, …
+│       ├── App.tsx             # Screen switch, nav stack, hardware-back handling
+│       ├── src/screens/        # Home, Insights, Pay, ShortfallSheet, MandateHub,
+│       │   │                   #   Goals, SpendInsights, SipCheck, Subscriptions,
+│       │   │                   #   MoneyMap, RiskProfile, Chat, Bank, Simulator
+│       │   └── onboarding/     # Splash → OTP → KYC → banks → PIN → cards → import
+│       ├── src/components/     # UpiPinModal, UtilityFlowModal, BalanceCurve, tabs
+│       ├── src/lib/            # Gemini client, coach tool definitions, back handler
 │       ├── src/data/           # The bundled sample statement (generated)
-│       └── store/              # Zustand store — the only place UI meets engine
+│       ├── store/              # Zustand store — the only place UI meets engine
+│       └── android/            # Prebuilt native project (icons, manifest, theme)
+├── build-apk.bat               # One-shot release APK build → apk/tixpay-latest.apk
 └── scripts/dev-web.mjs         # Browser preview launcher
 ```
 

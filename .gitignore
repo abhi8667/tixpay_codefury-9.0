@@ -12,3 +12,7 @@ apps/mobile/.env
 
 # Real inbox dump — never commit, contains personal SMS
 packages/engine/fixtures/real_inbox.json
+
+# Local editor / agent tooling config — not part of the project
+.claude/
+.vscode/
