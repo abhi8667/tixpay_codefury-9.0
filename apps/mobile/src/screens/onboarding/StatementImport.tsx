@@ -9,8 +9,35 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as XLSX from 'xlsx';
 import { t, typography, space, radius } from '../../theme';
 import { useAppStore } from '../../../store/useAppStore';
+
+/**
+ * Banks that only offer "Excel" exports hand out a real binary .xls/.xlsx
+ * workbook, not a CSV with a misleading extension — the file below is a
+ * genuine OLE2 workbook from JasperReports. Reading that as text produces
+ * garbage bytes, so binary formats are decoded with SheetJS and converted to
+ * CSV text first; the CSV parser downstream never has to know the
+ * difference.
+ */
+function isBinaryWorkbook(name: string): boolean {
+  return /\.xlsx?$/i.test(name);
+}
+
+async function readStatementText(uri: string, name: string): Promise<string> {
+  if (!isBinaryWorkbook(name)) {
+    return FileSystem.readAsStringAsync(uri);
+  }
+
+  const base64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  const workbook = XLSX.read(base64, { type: 'base64' });
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) return '';
+  return XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]!);
+}
 
 interface StatementImportProps {
   onImported: () => void;
@@ -45,8 +72,14 @@ export const StatementImport: React.FC<StatementImportProps> = ({ onImported }) 
         // Android reports CSV under several MIME types depending on which app
         // produced it, and some file managers report none at all. Accepting a
         // list plus the wildcard is the difference between a picker that opens
-        // on every device and one that shows an empty folder on a few.
-        type: ['text/csv', 'text/comma-separated-values', 'text/plain', '*/*'],
+        // on every device and one that shows an empty folder on a few. Excel
+        // MIME types are included because several banks only export .xls/.xlsx.
+        type: [
+          'text/csv', 'text/comma-separated-values', 'text/plain',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          '*/*',
+        ],
         copyToCacheDirectory: true,
         multiple: false,
       });
@@ -63,7 +96,7 @@ export const StatementImport: React.FC<StatementImportProps> = ({ onImported }) 
         return;
       }
 
-      const text = await FileSystem.readAsStringAsync(file.uri);
+      const text = await readStatementText(file.uri, file.name ?? '');
       const ok = importStatement(text, file.name ?? 'Statement.csv', false);
 
       setBusy(false);
@@ -72,7 +105,7 @@ export const StatementImport: React.FC<StatementImportProps> = ({ onImported }) 
       // A picker that throws must not take the screen down with it — the user
       // still has the sample path, and a dead button is worse than an error.
       console.warn('[StatementImport] pick failed:', e);
-      setLocalError('Could not open that file. It may not be a CSV.');
+      setLocalError('Could not open that file. It may not be a CSV or Excel export.');
       setBusy(false);
     }
   }, [importStatement, onImported]);
@@ -91,8 +124,9 @@ export const StatementImport: React.FC<StatementImportProps> = ({ onImported }) 
         </View>
         <Text style={styles.title}>Import your statement</Text>
         <Text style={styles.subtitle}>
-          Export a CSV from your net banking and hand it to TiXPay. We read the transactions,
-          find your auto-debits, and project your balance 30 days forward.
+          Export a statement (CSV or Excel) from your net banking and hand it to TiXPay. We
+          read the transactions, find your auto-debits, and project your balance 30 days
+          forward.
         </Text>
       </View>
 
@@ -108,8 +142,8 @@ export const StatementImport: React.FC<StatementImportProps> = ({ onImported }) 
         <View style={styles.errorCard}>
           <Text style={styles.errorText}>{error}</Text>
           <Text style={styles.errorHint}>
-            TiXPay reads CSV exports. In net banking, choose "Download as CSV" or "Excel (CSV)"
-            for your account statement.
+            TiXPay reads CSV and Excel (.xls/.xlsx) exports. In net banking, choose "Download
+            as CSV" or "Excel" for your account statement.
           </Text>
         </View>
       )}
