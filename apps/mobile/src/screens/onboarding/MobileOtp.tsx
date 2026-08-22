@@ -1,25 +1,30 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { t, typography, space, radius } from '../../theme';
+import { useAppStore } from '../../../store/useAppStore';
 
 interface MobileOtpProps {
   onNext: () => void;
 }
 
 export const MobileOtp: React.FC<MobileOtpProps> = ({ onNext }) => {
-  const [phone, setPhone] = useState('9876543210');
+  // Nothing is pre-filled — the user onboards with their own number.
+  const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [step, setStep] = useState<'PHONE' | 'OTP'>('PHONE');
+  const setProfile = useAppStore((s) => s.setProfile);
+
+  const phoneComplete = phone.length === 10;
 
   const handleSendOtp = () => {
-    if (phone.length >= 10) {
-      setStep('OTP');
-    }
+    if (!phoneComplete) return;
+    setProfile({ phone });
+    setStep('OTP');
   };
 
   const handleVerifyOtp = () => {
     // Any 6 digits pass per §2b of brief
-    if (otp.length === 6 || otp === '') {
+    if (otp.length === 6) {
       onNext();
     }
   };
@@ -46,7 +51,9 @@ export const MobileOtp: React.FC<MobileOtpProps> = ({ onNext }) => {
             onChangeText={setPhone}
             keyboardType="number-pad"
             maxLength={10}
+            placeholder="10-digit mobile number"
             placeholderTextColor={t.textFaint}
+            autoFocus
           />
         </View>
       ) : (
@@ -68,8 +75,12 @@ export const MobileOtp: React.FC<MobileOtpProps> = ({ onNext }) => {
       )}
 
       <TouchableOpacity
-        style={styles.btn}
+        style={[
+          styles.btn,
+          (step === 'PHONE' ? !phoneComplete : otp.length !== 6) && styles.btnDisabled,
+        ]}
         onPress={step === 'PHONE' ? handleSendOtp : handleVerifyOtp}
+        disabled={step === 'PHONE' ? !phoneComplete : otp.length !== 6}
         activeOpacity={0.8}
       >
         <Text style={styles.btnText}>
@@ -132,6 +143,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: space.md,
+  },
+  btnDisabled: {
+    opacity: 0.4,
   },
   btnText: {
     color: '#000000',

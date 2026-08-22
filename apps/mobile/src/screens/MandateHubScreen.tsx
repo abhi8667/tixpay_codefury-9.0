@@ -189,7 +189,7 @@ export const MandateHubScreen: React.FC<MandateHubScreenProps> = ({
       )}
 
       {/* ── Detail sheet ─────────────────────────────────────────────── */}
-      <Modal visible={detail !== null} transparent animationType="slide">
+      <Modal visible={detail !== null} transparent animationType="slide" onRequestClose={() => setDetail(null)}>
         <View style={styles.overlay}>
           <PressableScale
             style={styles.dismissArea}

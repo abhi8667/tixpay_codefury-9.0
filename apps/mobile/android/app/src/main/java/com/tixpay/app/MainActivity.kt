@@ -3,6 +3,9 @@ package com.tixpay.app
 import android.os.Build
 import android.os.Bundle
 
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -17,6 +20,31 @@ class MainActivity : ReactActivity() {
     // This is required for expo-splash-screen.
     setTheme(R.style.AppTheme);
     super.onCreate(null)
+    hideStatusBar()
+  }
+
+  override fun onWindowFocusChanged(hasFocus: Boolean) {
+    super.onWindowFocusChanged(hasFocus)
+    // Android puts the bars back after a permission dialog or a task switch,
+    // so re-assert on every return to focus rather than only at startup.
+    if (hasFocus) hideStatusBar()
+  }
+
+  /**
+   * Hide the notification/battery strip so it never sits over the app's own
+   * header.
+   *
+   * Deliberately WindowInsetsController and not android:windowFullscreen: the
+   * legacy flag hides the bar but also stops adjustResize from working, which
+   * would put the soft keyboard on top of the chat bar and every onboarding
+   * field. Leaving `decorFitsSystemWindows` true means the layout still stops
+   * short of the display cutout, so content is never clipped by a notch.
+   */
+  private fun hideStatusBar() {
+    val controller = WindowInsetsControllerCompat(window, window.decorView)
+    controller.systemBarsBehavior =
+        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    controller.hide(WindowInsetsCompat.Type.statusBars())
   }
 
   /**

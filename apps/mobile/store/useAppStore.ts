@@ -70,6 +70,15 @@ export interface KeeperEntry {
 
 export const KEEPER_GOAL = 50000;
 
+/** Who the user said they are. Collected in onboarding, never pre-filled. */
+export interface UserProfile {
+  name: string;
+  phone: string;
+  pan: string;
+}
+
+const EMPTY_PROFILE: UserProfile = { name: '', phone: '', pan: '' };
+
 /** A counterparty the account has paid before. */
 export interface Payee {
   /** Grouping key — the statement's payment address. */
@@ -118,6 +127,17 @@ export interface AppState {
   horizonDays: number;
   /** Risk questionnaire: question id → the chosen option's score (0–4). */
   riskAnswers: Record<string, number>;
+  /** Whatever the user actually typed during onboarding. Nothing is pre-filled. */
+  profile: UserProfile;
+  /**
+   * The 4-digit PIN chosen in onboarding.
+   *
+   * Null until then. Every PIN prompt in the app checks against this value, so
+   * a screen that gates on the PIN genuinely gates — before this existed the
+   * modal accepted any four digits, which made the balance privacy toggle
+   * decorative.
+   */
+  upiPin: string | null;
 
   // ─── Keeper (the sweep reserve) ────────────────────────────────────────
   keeperBalance: number;
@@ -208,6 +228,11 @@ export interface AppState {
   setGoal: (label: string, targetAmount: number, targetDate: Date | null) => void;
   setHorizon: (days: number) => void;
   addCard: (card: Card) => void;
+  /** Merge whatever onboarding step just collected into the profile. */
+  setProfile: (patch: Partial<UserProfile>) => void;
+  setUpiPin: (pin: string) => void;
+  /** True only if the PIN matches the one set in onboarding. */
+  verifyUpiPin: (pin: string) => boolean;
   setRiskAnswer: (questionId: string, score: number) => void;
   resetRiskAnswers: () => void;
   recompute: () => void;
@@ -446,6 +471,8 @@ export const useAppStore = create<AppState>((set, get) => {
     cardsList: mockCards,
     horizonDays: 30,
     riskAnswers: {},
+    profile: EMPTY_PROFILE,
+    upiPin: null,
     keeperBalance: KEEPER_OPENING,
     keeperTxns: KEEPER_SEED,
     goalLabel: 'Emergency fund',
@@ -924,6 +951,23 @@ export const useAppStore = create<AppState>((set, get) => {
 
     setRiskAnswer: (questionId: string, score: number) => {
       set({ riskAnswers: { ...get().riskAnswers, [questionId]: score } });
+    },
+
+    setProfile: (patch: Partial<UserProfile>) =>
+      set({ profile: { ...get().profile, ...patch } }),
+
+    setUpiPin: (pin: string) => set({ upiPin: pin }),
+
+    /**
+     * A PIN check with nothing set is a pass, not a lockout.
+     *
+     * Onboarding can be skipped straight to the demo, which never reaches the
+     * PIN step. Failing closed there would make the balance permanently
+     * unreachable with no way to recover it from inside the app.
+     */
+    verifyUpiPin: (pin: string) => {
+      const expected = get().upiPin;
+      return expected === null ? true : pin === expected;
     },
 
     resetRiskAnswers: () => set({ riskAnswers: {} }),

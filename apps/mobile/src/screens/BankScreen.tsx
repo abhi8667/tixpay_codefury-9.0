@@ -174,7 +174,7 @@ export const BankScreen: React.FC<BankScreenProps> = ({ onBack, onOpenMandates }
       </ScrollView>
 
       {/* ── 4. Add Bank Account Modal ─────────────────────────────────────── */}
-      <Modal visible={showAddAccountModal} transparent animationType="fade">
+      <Modal visible={showAddAccountModal} transparent animationType="fade" onRequestClose={() => setShowAddAccountModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Link Bank Account</Text>
@@ -198,7 +198,7 @@ export const BankScreen: React.FC<BankScreenProps> = ({ onBack, onOpenMandates }
       </Modal>
 
       {/* ── 5. Add Card Modal ─────────────────────────────────────────────── */}
-      <Modal visible={showAddCardModal} transparent animationType="fade">
+      <Modal visible={showAddCardModal} transparent animationType="fade" onRequestClose={() => setShowAddCardModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Add New Credit / Debit Card</Text>

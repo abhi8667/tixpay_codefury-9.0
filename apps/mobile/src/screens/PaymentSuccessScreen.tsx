@@ -46,7 +46,7 @@ export const PaymentSuccessScreen: React.FC<PaymentSuccessScreenProps> = ({
   };
 
   return (
-    <Modal visible={visible} animationType="fade" transparent={false}>
+    <Modal visible={visible} animationType="fade" transparent={false} onRequestClose={onDismiss}>
       <View style={styles.container}>
         <TouchableOpacity style={styles.closeBtn} onPress={onDismiss}>
           <Text style={styles.closeText}>✕</Text>

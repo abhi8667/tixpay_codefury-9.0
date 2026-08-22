@@ -111,7 +111,7 @@ export const ShortfallSheet: React.FC<ShortfallSheetProps> = ({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <TouchableOpacity style={styles.dismissArea} onPress={onClose} />
         <View style={styles.sheetContainer}>

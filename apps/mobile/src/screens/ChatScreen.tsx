@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,8 @@ import { useAppStore } from '../../store/useAppStore';
 
 interface ChatScreenProps {
   onBack?: () => void;
+  /** A question typed on the home screen's chat bar, sent as the opening turn. */
+  initialQuery?: string | null;
 }
 
 interface DisplayMessage {
@@ -42,7 +44,7 @@ const SUGGESTIONS = [
  * didn't come back from a tool call. That's the difference between this and
  * a generic chatbot — it can't hallucinate a balance.
  */
-export const ChatScreen: React.FC<ChatScreenProps> = ({ onBack }) => {
+export const ChatScreen: React.FC<ChatScreenProps> = ({ onBack, initialQuery }) => {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -50,6 +52,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onBack }) => {
   const historyRef = useRef<GeminiContent[]>([]);
   const scrollRef = useRef<ScrollView>(null);
   const hasData = useAppStore((s) => s.hasData());
+  /** Guards the seeded question against a re-render firing it a second time. */
+  const seedSentRef = useRef(false);
 
   const send = async (text: string) => {
     const trimmed = text.trim();
@@ -77,6 +81,15 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onBack }) => {
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
     }
   };
+
+  // A question typed into the home chat bar opens this screen already asking it,
+  // so the bar behaves like the start of a conversation rather than a detour
+  // through an empty inbox the user then has to re-type into.
+  useEffect(() => {
+    if (!initialQuery || seedSentRef.current || !hasData) return;
+    seedSentRef.current = true;
+    send(initialQuery);
+  }, [initialQuery, hasData]);
 
   return (
     <KeyboardAvoidingView

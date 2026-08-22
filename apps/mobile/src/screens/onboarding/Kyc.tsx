@@ -1,22 +1,32 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { t, typography, space, radius } from '../../theme';
+import { useAppStore } from '../../../store/useAppStore';
 
 interface KycProps {
   onNext: () => void;
 }
 
+/** The shape NSDL would check: five letters, four digits, one letter. */
+const PAN_PATTERN = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+
 export const Kyc: React.FC<KycProps> = ({ onNext }) => {
-  const [name, setName] = useState('Anshul Kasat');
-  const [pan, setPan] = useState('ABCDE1234F');
+  // Blank by design — these are the user's own details, not a demo persona.
+  const [name, setName] = useState('');
+  const [pan, setPan] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
+  const setProfile = useAppStore((s) => s.setProfile);
+
+  const canVerify = name.trim().length >= 2 && PAN_PATTERN.test(pan);
 
   const handleVerify = () => {
+    if (!canVerify) return;
     setIsVerifying(true);
     setTimeout(() => {
       setIsVerifying(false);
       setIsVerified(true);
+      setProfile({ name: name.trim(), pan });
       setTimeout(() => {
         onNext();
       }, 800);
@@ -36,15 +46,16 @@ export const Kyc: React.FC<KycProps> = ({ onNext }) => {
           style={styles.input}
           value={name}
           onChangeText={setName}
-          placeholder="Name"
+          placeholder="Name as printed on your PAN"
           placeholderTextColor={t.textFaint}
+          autoCapitalize="words"
         />
 
         <Text style={styles.label}>PAN Number</Text>
         <TextInput
           style={styles.input}
           value={pan}
-          onChangeText={setPan}
+          onChangeText={(v) => setPan(v.toUpperCase())}
           maxLength={10}
           autoCapitalize="characters"
           placeholder="ABCDE1234F"
@@ -66,9 +77,9 @@ export const Kyc: React.FC<KycProps> = ({ onNext }) => {
       </View>
 
       <TouchableOpacity
-        style={[styles.btn, isVerified && styles.btnSuccess]}
+        style={[styles.btn, isVerified && styles.btnSuccess, !canVerify && styles.btnDisabled]}
         onPress={handleVerify}
-        disabled={isVerifying || isVerified}
+        disabled={!canVerify || isVerifying || isVerified}
         activeOpacity={0.8}
       >
         <Text style={styles.btnText}>
@@ -146,6 +157,9 @@ const styles = StyleSheet.create({
   },
   btnSuccess: {
     backgroundColor: t.ok,
+  },
+  btnDisabled: {
+    opacity: 0.4,
   },
   btnText: {
     color: '#000000',

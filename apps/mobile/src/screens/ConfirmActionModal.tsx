@@ -47,7 +47,7 @@ export const ConfirmActionModal: React.FC<ConfirmActionModalProps> = ({
   const badge = target?.displayName.slice(0, 1).toUpperCase() ?? '🏺';
 
   return (
-    <Modal visible={visible} animationType="fade" transparent>
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={onCancel}>
       <View style={styles.overlay}>
         <View style={styles.cardContainer}>
           <View style={styles.checkCircleGlowing}>

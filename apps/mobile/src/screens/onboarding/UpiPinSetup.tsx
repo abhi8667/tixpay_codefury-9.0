@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { t, typography, space, radius } from '../../theme';
+import { useAppStore } from '../../../store/useAppStore';
 
 interface UpiPinSetupProps {
   onNext: () => void;
@@ -8,28 +9,57 @@ interface UpiPinSetupProps {
 
 export const UpiPinSetup: React.FC<UpiPinSetupProps> = ({ onNext }) => {
   const [pin, setPin] = useState('');
+  /** The first entry, held while the user re-types it. Null on the first pass. */
+  const [firstPin, setFirstPin] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const setUpiPin = useAppStore((s) => s.setUpiPin);
+
+  const confirming = firstPin !== null;
+
+  const handleComplete = (entered: string) => {
+    if (!confirming) {
+      setFirstPin(entered);
+      setPin('');
+      return;
+    }
+    if (entered === firstPin) {
+      setUpiPin(entered);
+      onNext();
+      return;
+    }
+    // Mismatched confirmation restarts the whole thing. Keeping the first entry
+    // and only clearing the second would let a typo in the first become the PIN.
+    setFirstPin(null);
+    setPin('');
+    setError('PINs did not match. Start again.');
+  };
 
   const handlePressNumber = (num: string) => {
-    if (pin.length < 4) {
-      const nextPin = pin + num;
-      setPin(nextPin);
-      if (nextPin.length === 4) {
-        setTimeout(() => {
-          onNext();
-        }, 300);
-      }
+    if (pin.length >= 4) return;
+    const nextPin = pin + num;
+    setPin(nextPin);
+    if (error) setError(null);
+    if (nextPin.length === 4) {
+      setTimeout(() => handleComplete(nextPin), 220);
     }
   };
 
   const handleDelete = () => {
     setPin(pin.slice(0, -1));
+    if (error) setError(null);
   };
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Set 4-Digit UPI PIN</Text>
-        <Text style={styles.subtitle}>Enter 4 digits for fast demo transactions</Text>
+        <Text style={styles.title}>
+          {confirming ? 'Confirm Your UPI PIN' : 'Set 4-Digit UPI PIN'}
+        </Text>
+        <Text style={styles.subtitle}>
+          {confirming
+            ? 'Re-enter the same 4 digits'
+            : 'You will need this to pay and to reveal your balance'}
+        </Text>
       </View>
 
       {/* Mandatory Safety Label per §2b of Brief */}
@@ -39,9 +69,14 @@ export const UpiPinSetup: React.FC<UpiPinSetupProps> = ({ onNext }) => {
 
       <View style={styles.pinDotsRow}>
         {[0, 1, 2, 3].map((i) => (
-          <View key={i} style={[styles.dot, i < pin.length && styles.dotFilled]} />
+          <View
+            key={i}
+            style={[styles.dot, i < pin.length && styles.dotFilled, !!error && styles.dotError]}
+          />
         ))}
       </View>
+
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
       {/* Custom Keypad */}
       <View style={styles.keypad}>
@@ -106,7 +141,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginVertical: space.xl,
+    marginTop: space.xl,
+    marginBottom: space.sm,
   },
   dot: {
     width: 18,
@@ -119,6 +155,16 @@ const styles = StyleSheet.create({
   dotFilled: {
     backgroundColor: t.warn,
     borderColor: t.warn,
+  },
+  dotError: {
+    borderColor: t.danger,
+  },
+  errorText: {
+    color: t.danger,
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: space.md,
   },
   keypad: {
     flexDirection: 'row',

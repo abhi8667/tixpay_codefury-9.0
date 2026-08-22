@@ -111,8 +111,18 @@ export const UtilityFlowModal: React.FC<UtilityFlowModalProps> = ({
 
   const filteredPlans = RECHARGE_PLANS.filter((p) => p.category === planTab);
 
+  /**
+   * Android back mirrors the header's own back affordance: one step at a time,
+   * closing only from the first. Wiring it straight to `onClose` would throw
+   * away a half-filled biller form on a single tap.
+   */
+  const handleRequestClose = () => {
+    if (step > 1) setStep(step - 1);
+    else onClose();
+  };
+
   return (
-    <Modal visible={visible} animationType="slide" transparent>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={handleRequestClose}>
       <View style={styles.overlay}>
         <View style={styles.container}>
           {/* ── Modal Header ─────────────────────────────────────────────── */}

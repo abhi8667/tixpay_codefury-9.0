@@ -23,7 +23,8 @@ interface HomeScreenProps {
   onOpenInsights: () => void;
   onOpenKeeper: () => void;
   onOpenMandates: () => void;
-  onOpenChat: () => void;
+  /** Opens the Money Coach, optionally with a question already asked. */
+  onOpenChat: (query?: string) => void;
   onTapDip: (shortfall: Shortfall) => void;
 }
 
@@ -51,8 +52,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onOpenChat,
   onTapDip,
 }) => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isBalanceHidden, setIsBalanceHidden] = useState(false);
+  const [coachQuery, setCoachQuery] = useState('');
+  /**
+   * Hidden until the user asks for it and clears the PIN.
+   *
+   * Defaulting to visible meant the balance, the safe-to-spend figure and the
+   * Keeper reserve were all on screen the moment the phone was unlocked — the
+   * eye toggle only ever protected the second look.
+   */
+  const [isBalanceHidden, setIsBalanceHidden] = useState(true);
   const [showPinModal, setShowPinModal] = useState(false);
 
   const [utilityModalType, setUtilityModalType] = useState<UtilityType | null>(null);
@@ -78,6 +86,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const balance = ledger?.currentBalance ?? 21597;
   const safeToSpend = 16597;
   const activeShortfall = shortfalls.length > 0 ? shortfalls[0] : null;
+
+  const askCoach = () => {
+    const question = coachQuery.trim();
+    onOpenChat(question || undefined);
+    setCoachQuery('');
+  };
 
   const toggleBalancePrivacy = () => {
     if (isBalanceHidden) {
@@ -120,23 +134,35 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               <Text style={styles.avatarText}>TX</Text>
             </View>
 
-            <View style={styles.searchBar}>
-              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#A0AEC0" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <Circle cx="11" cy="11" r="8" />
-                <Path d="M21 21l-4.35-4.35" />
+            {/* Ask the Money Coach. Submitting hands the question straight to
+                the chat screen, which opens already answering it. */}
+            <View style={styles.coachBar}>
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke={t.warn} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <Path d="M12 3a7 7 0 0 1 4 12.7V18a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.3A7 7 0 0 1 12 3z" />
+                <Path d="M9.5 22h5" />
               </Svg>
               <TextInput
-                style={styles.searchInput}
-                placeholder="Pay any contact or VPA"
+                style={styles.coachInput}
+                placeholder="Ask the Money Coach anything…"
                 placeholderTextColor="#718096"
-                value={searchQuery}
-                onChangeText={setSearchQuery}
+                value={coachQuery}
+                onChangeText={setCoachQuery}
+                onSubmitEditing={askCoach}
+                returnKeyType="send"
+                blurOnSubmit
               />
             </View>
 
-            <PressableScale style={styles.iconBtn} onPress={onOpenChat}>
+            <PressableScale style={styles.iconBtn} onPress={askCoach}>
               <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={t.warn} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                {coachQuery.trim() ? (
+                  <>
+                    <Path d="M22 2L11 13" />
+                    <Path d="M22 2l-7 20-4-9-9-4 20-7z" />
+                  </>
+                ) : (
+                  <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                )}
               </Svg>
             </PressableScale>
           </View>
@@ -337,6 +363,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         visible={showPinModal}
         title="UPI PIN Required"
         subtitle="Enter 4-digit UPI PIN to view account balance"
+        allowBiometric={false}
         onSuccess={() => {
           setIsBalanceHidden(false);
           setShowPinModal(false);
@@ -421,19 +448,19 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 13,
   },
-  searchBar: {
+  coachBar: {
     flex: 1,
     height: 44,
     backgroundColor: 'rgba(17, 22, 34, 0.85)',
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: 'rgba(245, 165, 36, 0.35)',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
     marginRight: 10,
   },
-  searchInput: {
+  coachInput: {
     flex: 1,
     color: t.text,
     fontSize: 13,

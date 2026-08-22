@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { StyleSheet, View, SafeAreaView, StatusBar, Platform } from 'react-native';
 import { Header } from './src/components/Header';
 import { BottomTabBar, TabName } from './src/components/BottomTabBar';
@@ -20,7 +20,7 @@ import { ChatScreen } from './src/screens/ChatScreen';
 import { OnboardingFlow } from './src/screens/onboarding/OnboardingFlow';
 import { AnimatedSplash } from './src/screens/onboarding/AnimatedSplash';
 import { HomeScreen } from './src/screens/HomeScreen';
-import { ScreenTransition } from './src/components/motion';
+import { useBackHandler } from './src/lib/useBackHandler';
 import { t } from './src/theme';
 import type { Intervention, Shortfall } from '@tixpay/types';
 import { useAppStore } from './store/useAppStore';
@@ -45,6 +45,12 @@ type ScreenMode =
   | 'RISK_PROFILE'
   | 'CHAT';
 
+/** One entry of the back stack: the screen plus which tab was lit for it. */
+interface NavEntry {
+  mode: ScreenMode;
+  tab: TabName;
+}
+
 interface PaidPayment {
   amount: number;
   payeeName: string;
@@ -55,7 +61,18 @@ export default function App() {
   const [booted, setBooted] = useState(false);
   const [screenMode, setScreenMode] = useState<ScreenMode>('HOME');
   const [activeTab, setActiveTab] = useState<TabName>('Home');
+  /**
+   * Where back goes, innermost last.
+   *
+   * Every tool screen used to hand `goHome` to its own back affordance, so
+   * leaving Spend Insights — which is only reachable from Insights — dropped
+   * the user on the dashboard. A stack makes back mean "the screen I came
+   * from", which is also what Android's own back gesture has to mean.
+   */
+  const [navStack, setNavStack] = useState<NavEntry[]>([]);
   const [payVisible, setPayVisible] = useState(false);
+  /** Text typed into the home chat bar, replayed once the coach mounts. */
+  const [chatSeed, setChatSeed] = useState<string | null>(null);
 
   /** The shortfall the user tapped. Drives which remedies the sheet offers. */
   const [openShortfall, setOpenShortfall] = useState<Shortfall | null>(null);
@@ -76,7 +93,62 @@ export default function App() {
   const goHome = useCallback(() => {
     setScreenMode('HOME');
     setActiveTab('Home');
+    setNavStack([]);
   }, []);
+
+  /** Push the current screen and open `mode`. */
+  const navigate = useCallback(
+    (mode: ScreenMode, tab?: TabName) => {
+      setNavStack((stack) => [...stack, { mode: screenMode, tab: activeTab }]);
+      setScreenMode(mode);
+      if (tab) setActiveTab(tab);
+    },
+    [screenMode, activeTab],
+  );
+
+  /** Pop one entry. Returns false only when there is nothing left to pop. */
+  const goBack = useCallback((): boolean => {
+    if (navStack.length > 0) {
+      const previous = navStack[navStack.length - 1];
+      setNavStack((stack) => stack.slice(0, -1));
+      setScreenMode(previous.mode);
+      setActiveTab(previous.tab);
+      return true;
+    }
+    if (screenMode !== 'HOME') {
+      goHome();
+      return true;
+    }
+    return false;
+  }, [navStack, screenMode, goHome]);
+
+  /**
+   * Android back, resolved outermost-last: dismiss whatever is layered on top
+   * before touching the stack underneath it. Returning false on an empty stack
+   * at Home is what lets the OS close the app, which is the one case where
+   * doing nothing would be wrong.
+   */
+  useBackHandler(() => {
+    if (paid !== null) {
+      setPaid(null);
+      goHome();
+      return true;
+    }
+    if (pendingIntervention !== null) {
+      setPendingIntervention(null);
+      return true;
+    }
+    if (openShortfall !== null) {
+      setOpenShortfall(null);
+      return true;
+    }
+    if (payVisible) {
+      setPayVisible(false);
+      goHome();
+      return true;
+    }
+    return goBack();
+  }, booted && onboardingDone);
 
   const confirmIntervention = useCallback(() => {
     if (pendingIntervention) applyIntervention(pendingIntervention);
@@ -85,17 +157,27 @@ export default function App() {
     goHome();
   }, [pendingIntervention, applyIntervention, goHome]);
 
+  /** Tabs are roots, not stack pushes — switching one clears the back stack. */
   const goToTab = useCallback((tab: TabName) => {
     setActiveTab(tab);
     if (tab === 'Pay') {
       setPayVisible(true);
       return;
     }
+    setNavStack([]);
     if (tab === 'Home') setScreenMode('HOME');
     else if (tab === 'Insights') setScreenMode('INSIGHTS');
     else if (tab === 'Bank') setScreenMode('BANK');
     else if (tab === 'Keeper') setScreenMode('KEEPER');
   }, []);
+
+  const openChat = useCallback(
+    (seed?: string) => {
+      setChatSeed(seed && seed.trim() ? seed.trim() : null);
+      navigate('CHAT');
+    },
+    [navigate],
+  );
 
   // The splash covers the first pipeline run and the bundle warm-up, so it sits
   // above everything else rather than being a step inside onboarding — a user
@@ -103,7 +185,7 @@ export default function App() {
   if (!booted) {
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={t.bg} />
+        <StatusBar hidden />
         <AnimatedSplash onDone={() => setBooted(true)} />
       </SafeAreaView>
     );
@@ -112,7 +194,7 @@ export default function App() {
   if (!onboardingDone) {
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={t.bg} />
+        <StatusBar hidden />
         <OnboardingFlow onFinishOnboarding={goHome} />
       </SafeAreaView>
     );
@@ -121,64 +203,53 @@ export default function App() {
   const renderScreen = () => {
     switch (screenMode) {
       case 'SIMULATOR':
-        return <SimulatorDashboard onBack={goHome} />;
+        return <SimulatorDashboard onBack={goBack} />;
       case 'BANK':
         return (
           <BankScreen
-            onBack={goHome}
-            onOpenMandates={() => {
-              setScreenMode('MANDATE_HUB');
-              setActiveTab('Bank');
-            }}
+            onBack={goBack}
+            onOpenMandates={() => navigate('MANDATE_HUB', 'Bank')}
           />
         );
       case 'MANDATE_HUB':
         return (
           <MandateHubScreen
-            onBack={goHome}
-            onOpenSubscriptions={() => setScreenMode('SUBSCRIPTIONS')}
+            onBack={goBack}
+            onOpenSubscriptions={() => navigate('SUBSCRIPTIONS')}
           />
         );
       case 'KEEPER':
-        return <GoalsScreen onBack={goHome} />;
+        return <GoalsScreen onBack={goBack} />;
       case 'SPEND_INSIGHTS':
-        return <SpendInsightsScreen onBack={goHome} />;
+        return <SpendInsightsScreen onBack={goBack} />;
       case 'SIP_CHECK':
-        return <SipCheckScreen onBack={goHome} />;
+        return <SipCheckScreen onBack={goBack} />;
       case 'SUBSCRIPTIONS':
-        return <SubscriptionsScreen onBack={goHome} />;
+        return <SubscriptionsScreen onBack={goBack} />;
       case 'MONEY_MAP':
-        return (
-          <MoneyMapScreen onBack={goHome} onOpenGoals={() => setScreenMode('KEEPER')} />
-        );
+        return <MoneyMapScreen onBack={goBack} onOpenGoals={() => navigate('KEEPER')} />;
       case 'RISK_PROFILE':
         return (
-          <RiskProfileScreen onBack={goHome} onOpenSipCheck={() => setScreenMode('SIP_CHECK')} />
+          <RiskProfileScreen onBack={goBack} onOpenSipCheck={() => navigate('SIP_CHECK')} />
         );
       case 'CHAT':
-        return <ChatScreen onBack={goHome} />;
+        return <ChatScreen onBack={goBack} initialQuery={chatSeed} />;
       case 'INSIGHTS':
         return (
           <InsightsScreen
             onTapDip={(shortfall) => setOpenShortfall(shortfall)}
-            onOpenKeeper={() => {
-              setScreenMode('KEEPER');
-              setActiveTab('Keeper');
-            }}
-            onOpenMandates={() => {
-              setScreenMode('MANDATE_HUB');
-              setActiveTab('Bank');
-            }}
+            onOpenKeeper={() => navigate('KEEPER', 'Keeper')}
+            onOpenMandates={() => navigate('MANDATE_HUB', 'Bank')}
             onOpenPay={() => {
               setPayVisible(true);
               setActiveTab('Pay');
             }}
-            onOpenSpendInsights={() => setScreenMode('SPEND_INSIGHTS')}
-            onOpenSipCheck={() => setScreenMode('SIP_CHECK')}
-            onOpenChat={() => setScreenMode('CHAT')}
-            onOpenSubscriptions={() => setScreenMode('SUBSCRIPTIONS')}
-            onOpenMoneyMap={() => setScreenMode('MONEY_MAP')}
-            onOpenRiskProfile={() => setScreenMode('RISK_PROFILE')}
+            onOpenSpendInsights={() => navigate('SPEND_INSIGHTS')}
+            onOpenSipCheck={() => navigate('SIP_CHECK')}
+            onOpenChat={() => openChat()}
+            onOpenSubscriptions={() => navigate('SUBSCRIPTIONS')}
+            onOpenMoneyMap={() => navigate('MONEY_MAP')}
+            onOpenRiskProfile={() => navigate('RISK_PROFILE')}
           />
         );
       case 'HOME':
@@ -193,19 +264,10 @@ export default function App() {
               setPayVisible(true);
               setActiveTab('Pay');
             }}
-            onOpenInsights={() => {
-              setScreenMode('INSIGHTS');
-              setActiveTab('Insights');
-            }}
-            onOpenKeeper={() => {
-              setScreenMode('KEEPER');
-              setActiveTab('Keeper');
-            }}
-            onOpenMandates={() => {
-              setScreenMode('MANDATE_HUB');
-              setActiveTab('Bank');
-            }}
-            onOpenChat={() => setScreenMode('CHAT')}
+            onOpenInsights={() => navigate('INSIGHTS', 'Insights')}
+            onOpenKeeper={() => navigate('KEEPER', 'Keeper')}
+            onOpenMandates={() => navigate('MANDATE_HUB', 'Bank')}
+            onOpenChat={openChat}
             onTapDip={(shortfall) => setOpenShortfall(shortfall)}
           />
         );
@@ -214,12 +276,12 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={t.bg} />
+      <StatusBar hidden />
 
       <Header
-        onMenuPress={() => setScreenMode('SIMULATOR')}
-        onNotificationPress={() => setScreenMode('MANDATE_HUB')}
-        onChatPress={() => setScreenMode('CHAT')}
+        onMenuPress={() => navigate('SIMULATOR')}
+        onNotificationPress={() => navigate('MANDATE_HUB', 'Bank')}
+        onChatPress={() => openChat()}
       />
 
       <View style={styles.content}>
@@ -272,7 +334,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: t.bg,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight ?? 24 : 0,
   },
   content: {
     flex: 1,

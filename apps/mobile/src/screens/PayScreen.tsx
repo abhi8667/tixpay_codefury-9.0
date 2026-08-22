@@ -125,7 +125,7 @@ export const PayScreen: React.FC<PayScreenProps> = ({ visible, onClose, onPaySuc
   const canPay = amountVal > 0 && !overBalance;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={false}>
+    <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
       <View style={styles.container}>
         {step === 'PAYEE' ? (
           <>
