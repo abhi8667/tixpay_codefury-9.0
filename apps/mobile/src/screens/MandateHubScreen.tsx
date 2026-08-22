@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { t, typography, space, radius } from '../theme';
 import { Rupee } from '../components/Rupee';
-import { mockMandates } from '@tixpay/types';
+import { useAppStore } from '../../store/useAppStore';
 
 interface MandateHubScreenProps {
   onBack?: () => void;
@@ -10,18 +10,23 @@ interface MandateHubScreenProps {
 
 export const MandateHubScreen: React.FC<MandateHubScreenProps> = ({ onBack }) => {
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
+  const mandates = useAppStore((state) => state.mandates());
+  const pausedMandateIds = useAppStore((state) => state.pausedMandateIds);
+  const togglePauseMandate = useAppStore((state) => state.togglePauseMandate);
+  const redactionOn = useAppStore((state) => state.redactionOn);
+
+  const criticals = mandates.filter((m) => m.priority === 'CRITICAL');
+  const highs = mandates.filter((m) => m.priority === 'HIGH');
+  const mediums = mandates.filter((m) => m.priority === 'MEDIUM');
+  const lows = mandates.filter((m) => m.priority === 'LOW');
 
   const filters = [
-    { label: 'All 12', val: 'ALL' },
-    { label: 'Critical 2', val: 'CRITICAL' },
-    { label: 'High 3', val: 'HIGH' },
-    { label: 'Medium 4', val: 'MEDIUM' },
-    { label: 'Low 3', val: 'LOW' },
+    { label: `All ${mandates.length}`, val: 'ALL' },
+    { label: `Critical ${criticals.length}`, val: 'CRITICAL' },
+    { label: `High ${highs.length}`, val: 'HIGH' },
+    { label: `Medium ${mediums.length}`, val: 'MEDIUM' },
+    { label: `Low ${lows.length}`, val: 'LOW' },
   ];
-
-  const criticals = mockMandates.filter((m) => m.priority === 'CRITICAL');
-  const highs = mockMandates.filter((m) => m.priority === 'HIGH');
-  const mediums = mockMandates.filter((m) => m.priority === 'MEDIUM');
 
   return (
     <View style={styles.container}>
@@ -54,68 +59,146 @@ export const MandateHubScreen: React.FC<MandateHubScreenProps> = ({ onBack }) =>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
         {/* CRITICAL SECTION */}
-        {(activeFilter === 'ALL' || activeFilter === 'CRITICAL') && (
+        {(activeFilter === 'ALL' || activeFilter === 'CRITICAL') && criticals.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.criticalTitle}>CRITICAL</Text>
-            {criticals.map((m) => (
-              <View key={m.id} style={styles.mandateRow}>
-                <View style={styles.logoCircle}>
-                  <Text style={styles.logoText}>SIP</Text>
-                </View>
-                <View style={styles.mandateInfo}>
-                  <Text style={styles.mandateName}>{m.displayName}</Text>
-                  <Text style={styles.mandateMeta}>Monthly • Next: Mar {m.dayOfMonth}</Text>
-                  <Text style={styles.provenanceText}>
-                    {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} SMS
-                  </Text>
-                </View>
-                <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
-              </View>
-            ))}
+            {criticals.map((m) => {
+              const isPaused = pausedMandateIds.includes(m.id);
+              const displayName = redactionOn && m.displayName.length > 8
+                ? `${m.displayName.slice(0, 4)}••••`
+                : m.displayName;
+
+              return (
+                <TouchableOpacity
+                  key={m.id}
+                  style={[styles.mandateRow, isPaused && styles.mandateRowPaused]}
+                  onPress={() => togglePauseMandate(m.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.logoCircle}>
+                    <Text style={styles.logoText}>SIP</Text>
+                  </View>
+                  <View style={styles.mandateInfo}>
+                    <Text style={styles.mandateName}>{displayName}</Text>
+                    <Text style={styles.mandateMeta}>
+                      Monthly • Next: Mar {m.dayOfMonth} {isPaused ? '(PAUSED)' : ''}
+                    </Text>
+                    <Text style={styles.provenanceText}>
+                      {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} SMS
+                    </Text>
+                  </View>
+                  <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
+                </TouchableOpacity>
+              );
+            })}
           </View>
         )}
 
         {/* HIGH SECTION */}
-        {(activeFilter === 'ALL' || activeFilter === 'HIGH') && (
+        {(activeFilter === 'ALL' || activeFilter === 'HIGH') && highs.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.highTitle}>HIGH</Text>
-            {highs.map((m) => (
-              <View key={m.id} style={styles.mandateRow}>
-                <View style={styles.logoCircle}>
-                  <Text style={styles.logoText}>{m.displayName.slice(0, 2).toUpperCase()}</Text>
-                </View>
-                <View style={styles.mandateInfo}>
-                  <Text style={styles.mandateName}>{m.displayName}</Text>
-                  <Text style={styles.mandateMeta}>Monthly • Next: Mar {m.dayOfMonth}</Text>
-                  <Text style={styles.provenanceText}>
-                    {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} SMS
-                  </Text>
-                </View>
-                <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
-              </View>
-            ))}
+            {highs.map((m) => {
+              const isPaused = pausedMandateIds.includes(m.id);
+              const displayName = redactionOn && m.displayName.length > 8
+                ? `${m.displayName.slice(0, 4)}••••`
+                : m.displayName;
+
+              return (
+                <TouchableOpacity
+                  key={m.id}
+                  style={[styles.mandateRow, isPaused && styles.mandateRowPaused]}
+                  onPress={() => togglePauseMandate(m.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.logoCircle}>
+                    <Text style={styles.logoText}>{m.displayName.slice(0, 2).toUpperCase()}</Text>
+                  </View>
+                  <View style={styles.mandateInfo}>
+                    <Text style={styles.mandateName}>{displayName}</Text>
+                    <Text style={styles.mandateMeta}>
+                      Monthly • Next: Mar {m.dayOfMonth} {isPaused ? '(PAUSED)' : ''}
+                    </Text>
+                    <Text style={styles.provenanceText}>
+                      {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} SMS
+                    </Text>
+                  </View>
+                  <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
+                </TouchableOpacity>
+              );
+            })}
           </View>
         )}
 
         {/* MEDIUM SECTION */}
-        {(activeFilter === 'ALL' || activeFilter === 'MEDIUM') && (
+        {(activeFilter === 'ALL' || activeFilter === 'MEDIUM') && mediums.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.mediumTitle}>MEDIUM</Text>
-            {mediums.map((m) => (
-              <View key={m.id} style={styles.mandateRow}>
-                <View style={styles.logoCircle}>
-                  <Text style={styles.logoText}>⚡</Text>
-                </View>
-                <View style={styles.mandateInfo}>
-                  <Text style={styles.mandateName}>{m.displayName}</Text>
-                  <Text style={styles.mandateMeta}>Monthly • Next: Mar {m.dayOfMonth}</Text>
-                  <Text style={styles.provenanceText}>
-                    {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} SMS
-                  </Text>
-                </View>
-                <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
-              </View>
-            ))}
+            {mediums.map((m) => {
+              const isPaused = pausedMandateIds.includes(m.id);
+              const displayName = redactionOn && m.displayName.length > 8
+                ? `${m.displayName.slice(0, 4)}••••`
+                : m.displayName;
+
+              return (
+                <TouchableOpacity
+                  key={m.id}
+                  style={[styles.mandateRow, isPaused && styles.mandateRowPaused]}
+                  onPress={() => togglePauseMandate(m.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.logoCircle}>
+                    <Text style={styles.logoText}>⚡</Text>
+                  </View>
+                  <View style={styles.mandateInfo}>
+                    <Text style={styles.mandateName}>{displayName}</Text>
+                    <Text style={styles.mandateMeta}>
+                      Monthly • Next: Mar {m.dayOfMonth} {isPaused ? '(PAUSED)' : ''}
+                    </Text>
+                    <Text style={styles.provenanceText}>
+                      {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} SMS
+                    </Text>
+                  </View>
+                  <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
+        {/* LOW SECTION */}
+        {(activeFilter === 'ALL' || activeFilter === 'LOW') && lows.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.lowTitle}>LOW</Text>
+            {lows.map((m) => {
+              const isPaused = pausedMandateIds.includes(m.id);
+              const displayName = redactionOn && m.displayName.length > 8
+                ? `${m.displayName.slice(0, 4)}••••`
+                : m.displayName;
+
+              return (
+                <TouchableOpacity
+                  key={m.id}
+                  style={[styles.mandateRow, isPaused && styles.mandateRowPaused]}
+                  onPress={() => togglePauseMandate(m.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.logoCircle}>
+                    <Text style={styles.logoText}>OTT</Text>
+                  </View>
+                  <View style={styles.mandateInfo}>
+                    <Text style={styles.mandateName}>{displayName}</Text>
+                    <Text style={styles.mandateMeta}>
+                      Monthly • Next: Mar {m.dayOfMonth} {isPaused ? '(PAUSED)' : ''}
+                    </Text>
+                    <Text style={styles.provenanceText}>
+                      {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} SMS
+                    </Text>
+                  </View>
+                  <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
+                </TouchableOpacity>
+              );
+            })}
           </View>
         )}
 
@@ -216,6 +299,13 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: space.xs,
   },
+  lowTitle: {
+    color: t.textDim,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: space.xs,
+  },
   mandateRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -225,6 +315,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: space.md,
     marginBottom: space.xs,
+  },
+  mandateRowPaused: {
+    borderColor: t.ok,
+    backgroundColor: '#0A261C',
   },
   logoCircle: {
     width: 36,

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, TextInput } from 'react-native';
 import { t, typography, space, radius } from '../theme';
-import { Rupee } from '../components/Rupee';
+import { useAppStore } from '../../store/useAppStore';
 
 interface PayScreenProps {
   visible: boolean;
@@ -14,21 +14,30 @@ export const PayScreen: React.FC<PayScreenProps> = ({
   onClose,
   onPaySuccess,
 }) => {
-  const [amountStr, setAmountStr] = useState('1');
-  const [showWarningSheet, setShowWarningSheet] = useState(true);
+  const [amountStr, setAmountStr] = useState('8000');
   const [selectedInstrument, setSelectedInstrument] = useState<'WALLET' | 'BANK'>('WALLET');
 
-  const handleKeyPress = (num: string) => {
-    if (num === '⌫') {
-      setAmountStr(amountStr.slice(0, -1) || '0');
-    } else if (num === '.' && amountStr.includes('.')) {
-      return;
-    } else {
-      setAmountStr(amountStr === '0' ? num : amountStr + num);
-    }
-  };
+  const recommendation = useAppStore((state) => state.recommendation());
+  const shortfalls = useAppStore((state) => state.shortfalls());
+  const ledger = useAppStore((state) => state.ledger());
+  const curve = useAppStore((state) => state.curve());
+  const redactionOn = useAppStore((state) => state.redactionOn);
+  const executePaymentStore = useAppStore((state) => state.executePayment);
+
+  const currentBalance = ledger?.currentBalance ?? (curve[0]?.balance ?? 12450);
+  const activeShortfall = shortfalls.length > 0 ? shortfalls[0] : undefined;
+  const atRiskItem = activeShortfall?.atRisk?.[0];
 
   const amountVal = parseFloat(amountStr) || 0;
+  const payeeDisplayName = redactionOn ? 'Tarun Aadhithya ••••' : 'Tarun Aadhithya V Sureendran Minor';
+  const payeeVpaDisplay = redactionOn ? 'aadhi••••@okicici' : 'aadhi7525@okicici';
+
+  const handleConfirmPay = () => {
+    if (amountVal > 0) {
+      executePaymentStore(amountVal, payeeDisplayName);
+    }
+    onPaySuccess();
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false}>
@@ -45,43 +54,69 @@ export const PayScreen: React.FC<PayScreenProps> = ({
           <View style={styles.avatarCircle}>
             <Text style={styles.avatarText}>T</Text>
           </View>
-          <Text style={styles.payeeName}>Tarun Aadhithya V Sureendran Minor</Text>
-          <Text style={styles.payeeVpa}>aadhi7525@okicici</Text>
+          <Text style={styles.payeeName}>{payeeDisplayName}</Text>
+          <Text style={styles.payeeVpa}>{payeeVpaDisplay}</Text>
         </View>
 
-        {/* Amount Input */}
+        {/* Interactive Amount Input */}
         <View style={styles.amountBox}>
           <Text style={styles.rupeeSymbol}>₹</Text>
-          <Text style={styles.amountDisplay}>{amountStr}</Text>
+          <TextInput
+            style={styles.amountInput}
+            value={amountStr}
+            onChangeText={setAmountStr}
+            keyboardType="numeric"
+            placeholder="0"
+            placeholderTextColor={t.textDim}
+          />
         </View>
 
-        <TouchableOpacity style={styles.addNoteBtn}>
-          <Text style={styles.addNoteText}>📎 Add a note</Text>
-        </TouchableOpacity>
+        {/* Preset Amount Chips */}
+        <View style={styles.presetChipsRow}>
+          {['500', '2500', '5000', '8000'].map((preset) => (
+            <TouchableOpacity
+              key={preset}
+              style={[styles.presetChip, amountStr === preset && styles.presetChipActive]}
+              onPress={() => setAmountStr(preset)}
+            >
+              <Text style={[styles.presetChipText, amountStr === preset && styles.presetChipTextActive]}>
+                ₹{Number(preset).toLocaleString('en-IN')}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
         <ScrollView style={styles.warningList} showsVerticalScrollIndicator={false}>
-          {/* Pre-Payment Intercept Warning Stack matching warning.png */}
-          <View style={styles.warningItemUrgent}>
-            <View style={styles.badgeUrgent}>
-              <Text style={styles.badgeUrgentText}>URGENT</Text>
+          {/* Pre-Payment Intercept Warning Stack */}
+          {activeShortfall && (
+            <View style={styles.warningItemUrgent}>
+              <View style={styles.badgeUrgent}>
+                <Text style={styles.badgeUrgentText}>URGENT</Text>
+              </View>
+              <View style={styles.warningInfo}>
+                <Text style={styles.warningTitle}>You'll miss an upcoming critical debit</Text>
+                <Text style={styles.warningSub}>
+                  {atRiskItem ? `${atRiskItem.displayName} • ₹${atRiskItem.amount} on ${atRiskItem.dayOfMonth} Mar` : '₹3,200 deficit projected on Mar 12'}
+                </Text>
+              </View>
+              <Text style={styles.viewDetailsText}>View Details ›</Text>
             </View>
-            <View style={styles.warningInfo}>
-              <Text style={styles.warningTitle}>You'll miss this upcoming SIP</Text>
-              <Text style={styles.warningSub}>HDFC Mutual Fund • ₹5,000 on 12 Mar</Text>
-            </View>
-            <Text style={styles.viewDetailsText}>View Details ›</Text>
-          </View>
+          )}
 
-          <View style={styles.warningItemImportant}>
-            <View style={styles.badgeImportant}>
-              <Text style={styles.badgeImportantText}>RECOMMENDATION</Text>
+          {recommendation && (
+            <View style={styles.warningItemImportant}>
+              <View style={styles.badgeImportant}>
+                <Text style={styles.badgeImportantText}>RECOMMENDATION</Text>
+              </View>
+              <View style={styles.warningInfo}>
+                <Text style={styles.warningTitle}>
+                  💳 {typeof recommendation.instrument === 'string' ? recommendation.instrument : recommendation.instrument.name}
+                </Text>
+                <Text style={styles.warningSub}>{recommendation.reason}</Text>
+              </View>
+              <Text style={styles.viewDetailsText}>Switch ›</Text>
             </View>
-            <View style={styles.warningInfo}>
-              <Text style={styles.warningTitle}>💳 Pay with Amex instead</Text>
-              <Text style={styles.warningSub}>You are ₹4,000 from your fee waiver</Text>
-            </View>
-            <Text style={styles.viewDetailsText}>Use Amex ›</Text>
-          </View>
+          )}
         </ScrollView>
 
         {/* Bottom Drawer Instrument Selector */}
@@ -96,24 +131,26 @@ export const PayScreen: React.FC<PayScreenProps> = ({
             activeOpacity={0.8}
           >
             <View style={styles.instrumentIcon}>
-              <Text style={styles.instLogoText}>FamX</Text>
+              <Text style={styles.instLogoText}>Bank</Text>
             </View>
             <View style={styles.instMeta}>
-              <Text style={styles.instName}>FamX Wallet UPI</Text>
-              <Text style={styles.instBal}>Balance: ₹12,450</Text>
+              <Text style={styles.instName}>HDFC Bank UPI (**4471)</Text>
+              <Text style={styles.instBal}>
+                Available Balance: ₹{currentBalance.toLocaleString('en-IN')}
+              </Text>
             </View>
             <View style={[styles.radio, selectedInstrument === 'WALLET' && styles.radioActive]} />
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.payNowBtn}
-            onPress={onPaySuccess}
+            onPress={handleConfirmPay}
             activeOpacity={0.8}
           >
             <Text style={styles.payNowBtnText}>Pay ₹{amountVal.toLocaleString('en-IN')}</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={onPaySuccess} style={styles.payAnywayLink}>
+          <TouchableOpacity onPress={handleConfirmPay} style={styles.payAnywayLink}>
             <Text style={styles.payAnywayText}>Pay anyway without recommendation</Text>
           </TouchableOpacity>
         </View>
@@ -121,6 +158,7 @@ export const PayScreen: React.FC<PayScreenProps> = ({
     </Modal>
   );
 };
+
 
 const styles = StyleSheet.create({
   container: {
@@ -150,15 +188,15 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#1A365D',
-    borderColor: t.accent,
-    borderWidth: 2,
+    backgroundColor: t.surfaceHi,
+    borderColor: t.border,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: space.xs,
   },
   avatarText: {
-    color: '#FFFFFF',
+    color: t.warn,
     fontSize: 24,
     fontWeight: '800',
   },
@@ -166,53 +204,79 @@ const styles = StyleSheet.create({
     color: t.text,
     fontSize: 16,
     fontWeight: '700',
+    textAlign: 'center',
   },
   payeeVpa: {
     color: t.textDim,
     fontSize: 13,
+    marginTop: 2,
   },
   amountBox: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: t.surface,
-    borderColor: t.border,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    height: 70,
-    marginVertical: space.sm,
+    marginVertical: space.md,
   },
   rupeeSymbol: {
-    color: t.warn,
+    color: t.textDim,
     fontSize: 32,
     fontWeight: '700',
-    marginRight: 6,
+    marginRight: 4,
   },
-  amountDisplay: {
+  amountInput: {
     color: t.text,
-    fontSize: 36,
-    fontWeight: '800',
+    fontSize: 42,
+    fontWeight: '900',
+    minWidth: 100,
+    textAlign: 'center',
+    padding: 0,
   },
-  addNoteBtn: {
-    alignSelf: 'center',
+  presetChipsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: space.xs,
+    marginBottom: space.md,
+  },
+  presetChip: {
     backgroundColor: t.surface,
     borderColor: t.border,
     borderWidth: 1,
     borderRadius: 16,
-    paddingHorizontal: 14,
+    paddingHorizontal: space.sm,
+    paddingVertical: 6,
+  },
+  presetChipActive: {
+    backgroundColor: t.warn,
+    borderColor: t.warn,
+  },
+  presetChipText: {
+    color: t.textDim,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  presetChipTextActive: {
+    color: '#000000',
+    fontWeight: '800',
+  },
+
+  addNoteBtn: {
+    alignSelf: 'center',
+    backgroundColor: t.surfaceHi,
+    borderRadius: 16,
+    paddingHorizontal: space.md,
     paddingVertical: 6,
     marginBottom: space.md,
   },
   addNoteText: {
-    color: t.warn,
-    fontSize: 12,
+    color: t.textDim,
+    fontSize: 13,
     fontWeight: '600',
   },
   warningList: {
     flex: 1,
   },
   warningItemUrgent: {
-    backgroundColor: '#2D1410',
+    backgroundColor: '#261214',
     borderColor: t.danger,
     borderWidth: 1,
     borderRadius: radius.md,
@@ -230,11 +294,30 @@ const styles = StyleSheet.create({
   },
   badgeUrgentText: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '900',
   },
+  warningInfo: {
+    flex: 1,
+  },
+  warningTitle: {
+    color: t.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  warningSub: {
+    color: t.textDim,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  viewDetailsText: {
+    color: t.danger,
+    fontSize: 12,
+    fontWeight: '700',
+    marginLeft: space.xs,
+  },
   warningItemImportant: {
-    backgroundColor: '#382A12',
+    backgroundColor: '#1E190E',
     borderColor: t.warn,
     borderWidth: 1,
     borderRadius: radius.md,
@@ -255,30 +338,10 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '900',
   },
-  warningInfo: {
-    flex: 1,
-  },
-  warningTitle: {
-    color: t.text,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  warningSub: {
-    color: t.textDim,
-    fontSize: 12,
-  },
-  viewDetailsText: {
-    color: t.warn,
-    fontSize: 12,
-    fontWeight: '700',
-  },
   instrumentDrawer: {
-    backgroundColor: t.surface,
-    borderColor: t.border,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    padding: space.md,
-    marginTop: space.sm,
+    paddingTop: space.sm,
+    borderTopWidth: 1,
+    borderTopColor: t.border,
   },
   payWithLabel: {
     color: t.textDim,
@@ -289,46 +352,49 @@ const styles = StyleSheet.create({
   instrumentCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: t.bg,
+    backgroundColor: t.surface,
     borderColor: t.border,
     borderWidth: 1,
-    borderRadius: radius.sm,
-    padding: space.sm,
+    borderRadius: radius.md,
+    padding: space.md,
     marginBottom: space.md,
   },
   selectedInstrument: {
     borderColor: t.warn,
+    backgroundColor: t.surfaceHi,
   },
   instrumentIcon: {
-    width: 36,
-    height: 24,
-    borderRadius: 4,
-    backgroundColor: t.warn,
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: t.surfaceHi,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: space.md,
   },
   instLogoText: {
-    color: '#000000',
-    fontSize: 9,
-    fontWeight: '900',
+    color: t.warn,
+    fontSize: 11,
+    fontWeight: '800',
   },
   instMeta: {
     flex: 1,
   },
   instName: {
     color: t.text,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
   },
   instBal: {
-    color: t.textDim,
-    fontSize: 11,
+    color: t.ok,
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
   },
   radio: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     borderWidth: 2,
     borderColor: t.border,
   },
@@ -338,7 +404,7 @@ const styles = StyleSheet.create({
   },
   payNowBtn: {
     backgroundColor: t.warn,
-    height: 50,
+    height: 52,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
@@ -346,15 +412,16 @@ const styles = StyleSheet.create({
   },
   payNowBtnText: {
     color: '#000000',
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '800',
   },
   payAnywayLink: {
     alignItems: 'center',
-    paddingVertical: 4,
+    paddingVertical: space.xs,
   },
   payAnywayText: {
     color: t.textDim,
     fontSize: 12,
+    fontWeight: '600',
   },
 });

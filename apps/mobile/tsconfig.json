@@ -4,7 +4,11 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@tixpay/types": ["../../packages/types/index.ts"],
+      "@tixpay/types/*": ["../../packages/types/*"],
+      "@tixpay/engine": ["../../packages/engine/src/index.ts"],
+      "@tixpay/engine/*": ["../../packages/engine/src/*"]
     }
   }
 }

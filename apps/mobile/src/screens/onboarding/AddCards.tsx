@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { t, typography, space, radius } from '../../theme';
-import { mockCards } from '@tixpay/types';
+import { useAppStore } from '../../../store/useAppStore';
 
 interface AddCardsProps {
   onNext: () => void;
 }
 
 export const AddCards: React.FC<AddCardsProps> = ({ onNext }) => {
+  const cards = useAppStore((state) => state.cards());
   const [selectedIds, setSelectedIds] = useState<string[]>(['card-amex-gold']);
 
   const toggleSelect = (id: string) => {
@@ -28,7 +29,7 @@ export const AddCards: React.FC<AddCardsProps> = ({ onNext }) => {
       </View>
 
       <View style={styles.list}>
-        {mockCards.map((card) => {
+        {cards.map((card) => {
           const isSelected = selectedIds.includes(card.id);
           return (
             <TouchableOpacity

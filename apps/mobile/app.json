@@ -4,15 +4,16 @@
     "slug": "tixpay-upi",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
       "backgroundColor": "#0A0C10"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tixpay.app"
     },
     "android": {
+      "package": "com.tixpay.app",
       "adaptiveIcon": {
         "backgroundColor": "#0A0C10"
       },
@@ -22,8 +23,8 @@
         "android.permission.CAMERA"
       ]
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    }
+    "plugins": [
+      "./plugins/withSmsPermission.js"
+    ]
   }
 }
