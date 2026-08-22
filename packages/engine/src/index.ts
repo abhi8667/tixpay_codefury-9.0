@@ -17,3 +17,4 @@ export * from './guard';
 export * from './attribute';
 export * from './route';
 export * from './evaluate';
+export * from './analyze';

@@ -5,6 +5,8 @@ dist/
 .expo/
 .expo-shared/
 web-build/
+.env
+apps/mobile/.env
 
 # Real inbox dump — never commit, contains personal SMS
 packages/engine/fixtures/real_inbox.json

@@ -1,6 +1,6 @@
 # TiXPay — On-Device Cash-Flow Guard
 
-> **React Native + Expo · Pure TypeScript engine · 281 tests · Zero network calls**
+> **React Native + Expo · Pure TypeScript engine · 302 tests · Zero network calls in the core engine**
 
 TiXPay reads one bank statement you hand it, discovers your recurring auto-debits, projects
 your balance 30 days forward, and stops you at the moment of payment when that payment is
@@ -21,7 +21,7 @@ product follows from.
 |---|---|
 | **Input** | One statement file you pick, once, through the system file picker |
 | **Permissions** | `CAMERA` only, for QR scanning, requested at the moment of use |
-| **Network** | None. There is no `fetch`, no `axios`, and no URL anywhere in the app or engine |
+| **Network** | The engine and every screen except Money Coach: none. Money Coach (optional, see below) is the one deliberate exception — it calls the Gemini API, and sends it only already-computed aggregates, never a raw transaction |
 | **Storage** | None. Transactions live in memory and die with the process |
 | **SMS** | Not read. `READ_SMS` and `RECEIVE_SMS` are explicitly blocked in the manifest |
 
@@ -63,6 +63,20 @@ The privacy claim is asserted by the test suite, not just by this file: see
    account"* debits the jar and credits the account, so a rescued curve is funded rather
    than asserted.
 
+6. **Spend Insights** — category-wise spend over a trailing window, with the % change vs
+   the window before it, off the same categorised transactions the mandate detector reads.
+
+7. **Goals** — Keeper generalised into a named, dated savings goal. "On track" is computed
+   from the account's actual trailing surplus (`computeAvgMonthlySurplus`), never an assumed
+   savings rate.
+
+8. **SIP Readiness Check** — before committing to a new SIP, run it against the same 90-day
+   shortfall projection the guard already trusts. Answers "can I afford this?" with a dated,
+   rupee-figure verdict instead of a rule of thumb.
+
+9. **Money Coach** — a chat interface over items 6–8, grounded via Gemini function-calling.
+   See "What the Money Coach is (and isn't)" below.
+
 ---
 
 ## 🧠 How the intelligence works — and what it is not
@@ -96,9 +110,31 @@ unit-test.
 - **Cold-start honest.** It works on the third occurrence of a mandate, not after enough
   data to train on.
 
-If a judge asks **"where's the AI?"** — answer plainly: *"There isn't one, and that's a
+If a judge asks **"where's the AI?"** about the engine — Spend Insights, Goals, SIP Check,
+mandate discovery, projection, guard — answer plainly: *"There isn't one, and that's a
 design decision. Here's the arithmetic instead."* Do not hedge, and do not call a regex
-"NLP."
+"NLP." The one place an LLM appears is Money Coach, described next, and it is scoped
+narrowly on purpose.
+
+### What the Money Coach is (and isn't)
+
+Money Coach is a chat screen over Gemini (`gemini-3.1-flash-lite`), added because it's
+useful and because the WealthTech track requires a conversational interface. It is **not**
+a general-purpose chatbot layered over raw data:
+
+- It never receives a transaction, account number, or balance history. `coachTools.ts`
+  exposes five tool calls — spend breakdown, goal status, SIP affordability, mandate list,
+  safe-to-spend — each returning only an aggregate the engine already computed.
+- The system prompt forbids stating any rupee figure, percentage, or date that didn't come
+  back from a tool call in that conversation, so it narrates the engine's numbers rather
+  than inventing its own.
+- Everything else in the app — the pre-payment intercept, mandate discovery, the balance
+  curve, the guard — is unchanged: deterministic, offline, and covered by the same 302
+  tests.
+
+Requires `EXPO_PUBLIC_GEMINI_API_KEY` in `apps/mobile/.env` (see `.env.example`). Without
+a key, every other screen works exactly as before — Money Coach just shows a banner
+explaining what's missing instead of crashing.
 
 ### On the roadmap, honestly scoped
 
@@ -132,8 +168,20 @@ pnpm install
 pnpm test
 ```
 
-281 tests across 15 files, under a second. Includes `appStore.test.ts`, which drives the
+302 tests across 16 files, under a second. Includes `appStore.test.ts`, which drives the
 real app store through the whole demo headlessly — import, intercept, pay, rescue.
+
+### Money Coach's API key (optional)
+
+Only needed for the Money Coach chat screen — everything else runs with no setup.
+
+```bash
+cp apps/mobile/.env.example apps/mobile/.env
+# then put your key in apps/mobile/.env:
+# EXPO_PUBLIC_GEMINI_API_KEY=your-key-here
+```
+
+Restart the dev server after adding it — Expo inlines `EXPO_PUBLIC_*` vars at build time.
 
 ### The app, in a browser
 

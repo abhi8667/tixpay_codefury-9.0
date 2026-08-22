@@ -4,6 +4,15 @@ import { t, space } from '../theme';
 
 export type TabName = 'Insights' | 'Pay' | 'Keeper' | 'Mandates';
 
+/** Display label per tab — the 'Keeper' identifier stays internal so the rest
+ *  of the app's plumbing (ScreenMode, store) doesn't need to change with it. */
+const TAB_LABELS: Record<TabName, string> = {
+  Insights: 'Insights',
+  Pay: 'Pay',
+  Keeper: 'Goals',
+  Mandates: 'Mandates',
+};
+
 interface BottomTabBarProps {
   activeTab: TabName;
   onTabChange: (tab: TabName) => void;
@@ -18,7 +27,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
   const tabs: { name: TabName; icon: string }[] = [
     { name: 'Insights', icon: '📊' },
     { name: 'Pay', icon: '💳' },
-    { name: 'Keeper', icon: '🏺' },
+    { name: 'Keeper', icon: '🎯' },
     { name: 'Mandates', icon: '🛡️' },
   ];
 
@@ -37,7 +46,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
               {tab.icon}
             </Text>
             <Text style={[styles.tabLabel, isActive && styles.activeLabel]}>
-              {tab.name}
+              {TAB_LABELS[tab.name]}
             </Text>
             {isActive && <View style={styles.activeIndicator} />}
           </TouchableOpacity>

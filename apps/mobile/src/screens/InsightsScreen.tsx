@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-nati
 import { t, typography, space, radius } from '../theme';
 import { Rupee } from '../components/Rupee';
 import { BalanceCurve } from '../components/BalanceCurve';
-import { useAppStore, KEEPER_GOAL } from '../../store/useAppStore';
+import { useAppStore } from '../../store/useAppStore';
 import { formatIstDate, PENALTY } from '@tixpay/engine';
 import type { Shortfall } from '@tixpay/types';
 
@@ -12,6 +12,9 @@ interface InsightsScreenProps {
   onOpenKeeper?: () => void;
   onOpenMandates?: () => void;
   onOpenPay?: () => void;
+  onOpenSpendInsights?: () => void;
+  onOpenSipCheck?: () => void;
+  onOpenChat?: () => void;
 }
 
 export const InsightsScreen: React.FC<InsightsScreenProps> = ({
@@ -19,6 +22,9 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
   onOpenKeeper,
   onOpenMandates,
   onOpenPay,
+  onOpenSpendInsights,
+  onOpenSipCheck,
+  onOpenChat,
 }) => {
   const curve = useAppStore((state) => state.curve());
   const mandates = useAppStore((state) => state.mandates());
@@ -28,6 +34,8 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
   const redactionOn = useAppStore((state) => state.redactionOn);
   const keeperBalance = useAppStore((state) => state.keeperBalance);
   const keeperProgress = useAppStore((state) => state.keeperProgress());
+  const goalLabel = useAppStore((state) => state.goalLabel);
+  const goalTargetAmount = useAppStore((state) => state.goalTargetAmount);
 
   const activeShortfall = shortfalls.length > 0 ? shortfalls[0] : undefined;
   // Green means the projection genuinely cleared, not that a button was
@@ -190,15 +198,15 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
         </View>
       </View>
 
-      {/* Keeper (Savings Jar) Preview Card */}
+      {/* Goal (Keeper Jar) Preview Card */}
       <TouchableOpacity style={styles.keeperCard} onPress={onOpenKeeper} activeOpacity={0.8}>
         <View style={styles.jarGraphicPlaceholder}>
-          <Text style={styles.jarEmoji}>🏺</Text>
+          <Text style={styles.jarEmoji}>🎯</Text>
         </View>
         <View style={styles.keeperInfo}>
-          <Text style={styles.keeperTitle}>Keeper</Text>
+          <Text style={styles.keeperTitle}>{goalLabel}</Text>
           <Text style={styles.keeperSub}>
-            Saving toward ₹{KEEPER_GOAL.toLocaleString('en-IN')}
+            Saving toward ₹{goalTargetAmount.toLocaleString('en-IN')}
           </Text>
           <Rupee amount={keeperBalance} style={styles.keeperAmount} showPrefix={false} />
 
@@ -208,6 +216,25 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
         </View>
         <Text style={styles.keeperPct}>{Math.round(keeperProgress * 100)}% of goal ›</Text>
       </TouchableOpacity>
+
+      {/* WealthTech tools: spend analysis, SIP readiness, and the coach */}
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionTitle}>Tools</Text>
+      </View>
+      <View style={styles.toolsRow}>
+        <TouchableOpacity style={styles.toolCard} onPress={onOpenSpendInsights} activeOpacity={0.8}>
+          <Text style={styles.toolIcon}>📊</Text>
+          <Text style={styles.toolLabel}>Spend Insights</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.toolCard} onPress={onOpenSipCheck} activeOpacity={0.8}>
+          <Text style={styles.toolIcon}>📈</Text>
+          <Text style={styles.toolLabel}>SIP Check</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.toolCard} onPress={onOpenChat} activeOpacity={0.8}>
+          <Text style={styles.toolIcon}>💬</Text>
+          <Text style={styles.toolLabel}>Money Coach</Text>
+        </TouchableOpacity>
+      </View>
     </ScrollView>
   );
 };
@@ -524,5 +551,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     marginLeft: space.xs,
+  },
+  toolsRow: {
+    flexDirection: 'row',
+    gap: space.sm,
+    marginBottom: space.md,
+  },
+  toolCard: {
+    flex: 1,
+    backgroundColor: t.surface,
+    borderColor: t.border,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: space.md,
+    alignItems: 'center',
+  },
+  toolIcon: {
+    fontSize: 22,
+    marginBottom: space.xs,
+  },
+  toolLabel: {
+    color: t.text,
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });

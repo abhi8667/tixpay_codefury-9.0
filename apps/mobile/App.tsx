@@ -8,14 +8,24 @@ import { ConfirmActionModal } from './src/screens/ConfirmActionModal';
 import { MandateHubScreen } from './src/screens/MandateHubScreen';
 import { PayScreen } from './src/screens/PayScreen';
 import { PaymentSuccessScreen } from './src/screens/PaymentSuccessScreen';
-import { KeeperScreen } from './src/screens/KeeperScreen';
+import { GoalsScreen } from './src/screens/GoalsScreen';
 import { SimulatorDashboard } from './src/screens/SimulatorDashboard';
+import { SpendInsightsScreen } from './src/screens/SpendInsightsScreen';
+import { SipCheckScreen } from './src/screens/SipCheckScreen';
+import { ChatScreen } from './src/screens/ChatScreen';
 import { OnboardingFlow } from './src/screens/onboarding/OnboardingFlow';
 import { t } from './src/theme';
 import type { Intervention, Shortfall } from '@tixpay/types';
 import { useAppStore } from './store/useAppStore';
 
-type ScreenMode = 'INSIGHTS' | 'MANDATE_HUB' | 'KEEPER' | 'SIMULATOR';
+type ScreenMode =
+  | 'INSIGHTS'
+  | 'MANDATE_HUB'
+  | 'KEEPER'
+  | 'SIMULATOR'
+  | 'SPEND_INSIGHTS'
+  | 'SIP_CHECK'
+  | 'CHAT';
 
 interface PaidPayment {
   amount: number;
@@ -84,6 +94,7 @@ export default function App() {
       <Header
         onMenuPress={() => setScreenMode('SIMULATOR')}
         onNotificationPress={() => setScreenMode('MANDATE_HUB')}
+        onChatPress={() => setScreenMode('CHAT')}
       />
 
       <View style={styles.content}>
@@ -92,7 +103,13 @@ export default function App() {
         ) : screenMode === 'MANDATE_HUB' ? (
           <MandateHubScreen onBack={() => setScreenMode('INSIGHTS')} />
         ) : screenMode === 'KEEPER' ? (
-          <KeeperScreen onBack={() => setScreenMode('INSIGHTS')} />
+          <GoalsScreen onBack={() => setScreenMode('INSIGHTS')} />
+        ) : screenMode === 'SPEND_INSIGHTS' ? (
+          <SpendInsightsScreen onBack={() => setScreenMode('INSIGHTS')} />
+        ) : screenMode === 'SIP_CHECK' ? (
+          <SipCheckScreen onBack={() => setScreenMode('INSIGHTS')} />
+        ) : screenMode === 'CHAT' ? (
+          <ChatScreen onBack={() => setScreenMode('INSIGHTS')} />
         ) : (
           <InsightsScreen
             onTapDip={(shortfall) => setOpenShortfall(shortfall)}
@@ -108,6 +125,9 @@ export default function App() {
               setPayVisible(true);
               setActiveTab('Pay');
             }}
+            onOpenSpendInsights={() => setScreenMode('SPEND_INSIGHTS')}
+            onOpenSipCheck={() => setScreenMode('SIP_CHECK')}
+            onOpenChat={() => setScreenMode('CHAT')}
           />
         )}
       </View>

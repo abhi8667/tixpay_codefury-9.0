@@ -19,8 +19,16 @@ import {
   projectWithPaused,
   findShortfalls,
   proposeInterventions,
+  computeSpendBreakdown,
+  computeAvgMonthlySurplus,
+  projectGoal,
+  checkSipAffordability,
   type PipelineResult,
   type StatementMeta,
+  type SpendBreakdown,
+  type GoalProjection,
+  type SipCheckResult,
+  type Cadence,
 } from '@tixpay/engine';
 import { DEMO_STATEMENT_CSV } from '../src/data/demoStatement';
 import { setRedactionEnabled } from '../src/utils/redaction';
@@ -72,6 +80,11 @@ export interface AppState {
   keeperBalance: number;
   keeperTxns: KeeperEntry[];
 
+  // ─── Goal (what the Keeper jar is being saved toward) ─────────────────
+  goalLabel: string;
+  goalTargetAmount: number;
+  goalTargetDate: Date | null;
+
   // ─── Cached pipeline result ────────────────────────────────────────────
   _pipelineCache: PipelineResult | null;
 
@@ -94,6 +107,17 @@ export interface AppState {
   keeperProgress: () => number;
   canFundSweep: (amount: number) => boolean;
   evaluate: (intent: PaymentIntent) => PaymentVerdict | null;
+  /**
+   * Category-wise spend for the trailing `windowDays`, vs the window before it.
+   *
+   * Returns a fresh object each call — same rule as `interventions`: select the
+   * function reference, not the call, and wrap the call in `useMemo`.
+   */
+  spendBreakdown: (windowDays?: number) => SpendBreakdown | null;
+  /** Where the Keeper jar stands against its goal, projected off real surplus. */
+  goalStatus: () => GoalProjection | null;
+  /** "Can I afford this SIP?" — evaluated against the actual projected curve. */
+  checkSip: (amount: number, cadence: Cadence, dayOfMonth: number) => SipCheckResult | null;
 
   // ─── Actions ───────────────────────────────────────────────────────────
   importStatement: (csv: string, sourceName: string, isSample?: boolean) => boolean;
@@ -111,6 +135,7 @@ export interface AppState {
   applySweep: (amount: number) => void;
   addToKeeper: (amount: number) => void;
   withdrawFromKeeper: (amount: number) => void;
+  setGoal: (label: string, targetAmount: number, targetDate: Date | null) => void;
   recompute: () => void;
 }
 
@@ -289,6 +314,9 @@ export const useAppStore = create<AppState>((set, get) => {
     cardsList: mockCards,
     keeperBalance: KEEPER_OPENING,
     keeperTxns: KEEPER_SEED,
+    goalLabel: 'Emergency fund',
+    goalTargetAmount: KEEPER_GOAL,
+    goalTargetDate: null,
     _pipelineCache: null,
 
     // ─── Selectors ───────────────────────────────────────────────────────
@@ -326,7 +354,10 @@ export const useAppStore = create<AppState>((set, get) => {
       return forThisDip.length > 0 ? forThisDip : cache.interventions;
     },
 
-    keeperProgress: () => Math.min(get().keeperBalance / KEEPER_GOAL, 1),
+    keeperProgress: () => {
+      const s = get();
+      return s.goalTargetAmount > 0 ? Math.min(s.keeperBalance / s.goalTargetAmount, 1) : 1;
+    },
     canFundSweep: (amount: number) => get().keeperBalance >= amount,
 
     evaluate: (intent: PaymentIntent) => {
@@ -346,6 +377,58 @@ export const useAppStore = create<AppState>((set, get) => {
         // Never let a verdict failure block the pay button — a judge tapping
         // Pay and getting a frozen screen is worse than a missing warning.
         console.warn('[useAppStore] evaluatePayment failed:', err);
+        return null;
+      }
+    },
+
+    spendBreakdown: (windowDays = 30) => {
+      const s = get();
+      const cache = s._pipelineCache;
+      if (!cache) return null;
+      try {
+        return computeSpendBreakdown(cache.txns, s.now, windowDays);
+      } catch (err) {
+        console.warn('[useAppStore] computeSpendBreakdown failed:', err);
+        return null;
+      }
+    },
+
+    goalStatus: () => {
+      const s = get();
+      const cache = s._pipelineCache;
+      if (!cache) return null;
+      try {
+        const avgMonthlySurplus = computeAvgMonthlySurplus(cache.txns, s.now, 3);
+        return projectGoal(
+          s.keeperBalance,
+          s.goalTargetAmount,
+          avgMonthlySurplus,
+          s.now,
+          s.goalTargetDate ?? undefined,
+        );
+      } catch (err) {
+        console.warn('[useAppStore] projectGoal failed:', err);
+        return null;
+      }
+    },
+
+    checkSip: (amount: number, cadence: Cadence, dayOfMonth: number) => {
+      const s = get();
+      const cache = s._pipelineCache;
+      if (!cache?.ledger) return null;
+      try {
+        return checkSipAffordability(
+          amount,
+          cadence,
+          dayOfMonth,
+          cache.ledger,
+          cache.mandates,
+          cache.income,
+          s.now,
+          90,
+        );
+      } catch (err) {
+        console.warn('[useAppStore] checkSipAffordability failed:', err);
         return null;
       }
     },
@@ -590,6 +673,10 @@ export const useAppStore = create<AppState>((set, get) => {
           ...s.keeperTxns,
         ],
       });
+    },
+
+    setGoal: (label: string, targetAmount: number, targetDate: Date | null) => {
+      set({ goalLabel: label, goalTargetAmount: Math.max(0, targetAmount), goalTargetDate: targetDate });
     },
 
     recompute: () => rebuild({}),

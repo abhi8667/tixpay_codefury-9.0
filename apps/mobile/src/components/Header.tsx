@@ -8,6 +8,7 @@ interface HeaderProps {
   title?: string;
   onMenuPress?: () => void;
   onNotificationPress?: () => void;
+  onChatPress?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -16,6 +17,7 @@ export const Header: React.FC<HeaderProps> = ({
   title,
   onMenuPress,
   onNotificationPress,
+  onChatPress,
 }) => {
   return (
     <View style={styles.container}>
@@ -45,6 +47,11 @@ export const Header: React.FC<HeaderProps> = ({
       </View>
 
       <View style={styles.right}>
+        {onChatPress && (
+          <TouchableOpacity onPress={onChatPress} style={styles.iconBtn}>
+            <Text style={styles.bellIcon}>💬</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity onPress={onNotificationPress} style={styles.iconBtn}>
           <Text style={styles.bellIcon}>🔔</Text>
           <View style={styles.badgeDot} />
@@ -72,8 +79,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   right: {
-    width: 40,
-    alignItems: 'flex-end',
+    minWidth: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
   },
   iconBtn: {
     width: 36,
