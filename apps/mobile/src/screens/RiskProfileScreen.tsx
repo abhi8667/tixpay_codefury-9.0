@@ -193,8 +193,8 @@ export const RiskProfileScreen: React.FC<RiskProfileScreenProps> = ({
         {/* ── The questionnaire ────────────────────────────────────────── */}
         <Text style={styles.sectionTitle}>Five questions</Text>
 
-        {RISK_QUESTIONS.map((q, index) => (
-          <FadeIn key={q.id} delay={Math.min(120 + index * 30, 280)} style={styles.card}>
+        {RISK_QUESTIONS.map((q) => (
+          <View key={q.id} style={styles.card}>
             <Text style={styles.question}>{q.prompt}</Text>
             {q.options.map((opt) => {
               const selected = riskAnswers[q.id] === opt.score;
@@ -211,7 +211,7 @@ export const RiskProfileScreen: React.FC<RiskProfileScreenProps> = ({
                 </PressableScale>
               );
             })}
-          </FadeIn>
+          </View>
         ))}
       </ScrollView>
     </View>

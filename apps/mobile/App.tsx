@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { StyleSheet, View, SafeAreaView, StatusBar } from 'react-native';
+import React, { useState, useCallback, useEffect } from 'react';
+import { StyleSheet, View, SafeAreaView, StatusBar, Platform } from 'react-native';
 import { Header } from './src/components/Header';
 import { BottomTabBar, TabName } from './src/components/BottomTabBar';
 import { InsightsScreen } from './src/screens/InsightsScreen';
@@ -15,15 +15,25 @@ import { SipCheckScreen } from './src/screens/SipCheckScreen';
 import { SubscriptionsScreen } from './src/screens/SubscriptionsScreen';
 import { MoneyMapScreen } from './src/screens/MoneyMapScreen';
 import { RiskProfileScreen } from './src/screens/RiskProfileScreen';
+import { BankScreen } from './src/screens/BankScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
 import { OnboardingFlow } from './src/screens/onboarding/OnboardingFlow';
 import { AnimatedSplash } from './src/screens/onboarding/AnimatedSplash';
+import { HomeScreen } from './src/screens/HomeScreen';
 import { ScreenTransition } from './src/components/motion';
 import { t } from './src/theme';
 import type { Intervention, Shortfall } from '@tixpay/types';
 import { useAppStore } from './store/useAppStore';
 
+if (Platform.OS === 'web' && typeof document !== 'undefined') {
+  const fontStyle = document.createElement('style');
+  fontStyle.textContent = `@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;800;900&display=swap'); body, input, button, select, textarea, div, span, p, a { font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important; }`;
+  document.head.appendChild(fontStyle);
+}
+
 type ScreenMode =
+  | 'HOME'
+  | 'BANK'
   | 'INSIGHTS'
   | 'MANDATE_HUB'
   | 'KEEPER'
@@ -43,8 +53,8 @@ interface PaidPayment {
 
 export default function App() {
   const [booted, setBooted] = useState(false);
-  const [screenMode, setScreenMode] = useState<ScreenMode>('INSIGHTS');
-  const [activeTab, setActiveTab] = useState<TabName>('Insights');
+  const [screenMode, setScreenMode] = useState<ScreenMode>('HOME');
+  const [activeTab, setActiveTab] = useState<TabName>('Home');
   const [payVisible, setPayVisible] = useState(false);
 
   /** The shortfall the user tapped. Drives which remedies the sheet offers. */
@@ -64,8 +74,8 @@ export default function App() {
   const closeSheet = useCallback(() => setOpenShortfall(null), []);
 
   const goHome = useCallback(() => {
-    setScreenMode('INSIGHTS');
-    setActiveTab('Insights');
+    setScreenMode('HOME');
+    setActiveTab('Home');
   }, []);
 
   const confirmIntervention = useCallback(() => {
@@ -81,9 +91,10 @@ export default function App() {
       setPayVisible(true);
       return;
     }
-    if (tab === 'Insights') setScreenMode('INSIGHTS');
+    if (tab === 'Home') setScreenMode('HOME');
+    else if (tab === 'Insights') setScreenMode('INSIGHTS');
+    else if (tab === 'Bank') setScreenMode('BANK');
     else if (tab === 'Keeper') setScreenMode('KEEPER');
-    else if (tab === 'Mandates') setScreenMode('MANDATE_HUB');
   }, []);
 
   // The splash covers the first pipeline run and the bundle warm-up, so it sits
@@ -111,6 +122,16 @@ export default function App() {
     switch (screenMode) {
       case 'SIMULATOR':
         return <SimulatorDashboard onBack={goHome} />;
+      case 'BANK':
+        return (
+          <BankScreen
+            onBack={goHome}
+            onOpenMandates={() => {
+              setScreenMode('MANDATE_HUB');
+              setActiveTab('Bank');
+            }}
+          />
+        );
       case 'MANDATE_HUB':
         return (
           <MandateHubScreen
@@ -136,7 +157,7 @@ export default function App() {
         );
       case 'CHAT':
         return <ChatScreen onBack={goHome} />;
-      default:
+      case 'INSIGHTS':
         return (
           <InsightsScreen
             onTapDip={(shortfall) => setOpenShortfall(shortfall)}
@@ -146,7 +167,7 @@ export default function App() {
             }}
             onOpenMandates={() => {
               setScreenMode('MANDATE_HUB');
-              setActiveTab('Mandates');
+              setActiveTab('Bank');
             }}
             onOpenPay={() => {
               setPayVisible(true);
@@ -158,6 +179,34 @@ export default function App() {
             onOpenSubscriptions={() => setScreenMode('SUBSCRIPTIONS')}
             onOpenMoneyMap={() => setScreenMode('MONEY_MAP')}
             onOpenRiskProfile={() => setScreenMode('RISK_PROFILE')}
+          />
+        );
+      case 'HOME':
+      default:
+        return (
+          <HomeScreen
+            onOpenScan={() => {
+              setPayVisible(true);
+              setActiveTab('Pay');
+            }}
+            onOpenPayContact={() => {
+              setPayVisible(true);
+              setActiveTab('Pay');
+            }}
+            onOpenInsights={() => {
+              setScreenMode('INSIGHTS');
+              setActiveTab('Insights');
+            }}
+            onOpenKeeper={() => {
+              setScreenMode('KEEPER');
+              setActiveTab('Keeper');
+            }}
+            onOpenMandates={() => {
+              setScreenMode('MANDATE_HUB');
+              setActiveTab('Bank');
+            }}
+            onOpenChat={() => setScreenMode('CHAT')}
+            onTapDip={(shortfall) => setOpenShortfall(shortfall)}
           />
         );
     }
@@ -174,10 +223,7 @@ export default function App() {
       />
 
       <View style={styles.content}>
-        {/* Keyed on the screen so every navigation cross-fades rather than
-            snapping. The key is the route, not the component, so re-rendering
-            the same screen with new data does not replay the transition. */}
-        <ScreenTransition routeKey={screenMode}>{renderScreen()}</ScreenTransition>
+        {renderScreen()}
       </View>
 
       <ShortfallSheet
@@ -226,6 +272,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: t.bg,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight ?? 24 : 0,
   },
   content: {
     flex: 1,

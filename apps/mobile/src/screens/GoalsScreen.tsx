@@ -7,6 +7,8 @@ import { FadeIn, PressableScale, ProgressBar, money } from '../components/motion
 import { useAppStore, type TransferResult } from '../../store/useAppStore';
 import { formatIstDate } from '@tixpay/engine';
 
+import Svg, { Circle, Path } from 'react-native-svg';
+
 interface GoalsScreenProps {
   onBack?: () => void;
 }
@@ -69,7 +71,8 @@ export const GoalsScreen: React.FC<GoalsScreenProps> = ({ onBack }) => {
   );
 
   const accountBalance = ledger?.currentBalance ?? 0;
-  const pct = Math.min(1, Math.max(0, status?.pct ?? 0));
+  const fallbackPct = goalTargetAmount > 0 ? keeperBalance / goalTargetAmount : 0;
+  const pct = Math.min(1, Math.max(0, status?.pct ?? fallbackPct));
   const amountVal = parseFloat(amountStr) || 0;
 
   const handleAdd = () => flash(addToKeeper(amountVal));
@@ -112,9 +115,14 @@ export const GoalsScreen: React.FC<GoalsScreenProps> = ({ onBack }) => {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        <FadeIn style={styles.jarSection}>
+        <View style={styles.jarSection}>
           <View style={styles.jarGlowContainer}>
-            <Text style={styles.jarEmojiLarge}>🎯</Text>
+            <Svg width={44} height={44} viewBox="0 0 24 24" fill="none" stroke={t.warn} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <Circle cx="12" cy="12" r="10" />
+              <Circle cx="12" cy="12" r="6" />
+              <Circle cx="12" cy="12" r="2" fill={t.warn} />
+              <Path d="M12 2v2M12 20v2M2 12h2M20 12h2" />
+            </Svg>
           </View>
 
           {editing ? (
@@ -134,19 +142,24 @@ export const GoalsScreen: React.FC<GoalsScreenProps> = ({ onBack }) => {
             </View>
           ) : (
             <PressableScale onPress={() => setEditing(true)} haptic={false}>
-              <Text style={styles.goalLabel}>{goalLabel} ✎</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.goalLabel}>{goalLabel}</Text>
+                <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={t.textDim} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <Path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                </Svg>
+              </View>
             </PressableScale>
           )}
 
-          <Rupee amount={keeperBalance} style={typography.display} showPrefix={false} animate />
+          <Rupee amount={keeperBalance} style={typography.display} showPrefix={false} animate={false} />
           <Text style={styles.ofTarget}>of {money(goalTargetAmount)}</Text>
 
           <ProgressBar progress={pct} style={styles.progress} />
           <Text style={styles.pctText}>{Math.round(pct * 100)}% of goal</Text>
-        </FadeIn>
+        </View>
 
         {/* ── Move money ───────────────────────────────────────────────── */}
-        <FadeIn delay={60} style={styles.card}>
+        <View style={styles.card}>
           <Text style={styles.cardTitle}>Move money</Text>
           <View style={styles.amountRow}>
             <Text style={styles.amountSymbol}>₹</Text>
@@ -199,10 +212,10 @@ export const GoalsScreen: React.FC<GoalsScreenProps> = ({ onBack }) => {
           <Text style={styles.availableNote}>
             Account balance {money(accountBalance)} · goal holds {money(keeperBalance)}
           </Text>
-        </FadeIn>
+        </View>
 
         {/* ── Target ───────────────────────────────────────────────────── */}
-        <FadeIn delay={110} style={styles.card}>
+        <View style={styles.card}>
           <Text style={styles.cardTitle}>Target</Text>
           <View style={styles.pillRow}>
             {PRESET_TARGETS.map((amt) => (
@@ -247,50 +260,48 @@ export const GoalsScreen: React.FC<GoalsScreenProps> = ({ onBack }) => {
               Aiming for {formatIstDate(goalTargetDate, true)}
             </Text>
           ) : null}
-        </FadeIn>
+        </View>
 
         {/* ── Are you on track ─────────────────────────────────────────── */}
         {status && (
-          <FadeIn delay={160}>
-            <View
-              style={[
-                styles.projectionCard,
-                status.onTrack ? styles.onTrackCard : styles.offTrackCard,
-              ]}
-            >
-              <Text style={styles.projectionIcon}>{status.onTrack ? '✓' : '⚠️'}</Text>
-              <View style={styles.projectionInfo}>
-                <Text
-                  style={[
-                    styles.projectionTitle,
-                    status.onTrack ? styles.onTrackText : styles.offTrackText,
-                  ]}
-                >
-                  {status.onTrack ? "You're on track" : 'Off track at your current savings rate'}
-                </Text>
+          <View
+            style={[
+              styles.projectionCard,
+              status.onTrack ? styles.onTrackCard : styles.offTrackCard,
+            ]}
+          >
+            <Text style={styles.projectionIcon}>{status.onTrack ? '✓' : '⚠️'}</Text>
+            <View style={styles.projectionInfo}>
+              <Text
+                style={[
+                  styles.projectionTitle,
+                  status.onTrack ? styles.onTrackText : styles.offTrackText,
+                ]}
+              >
+                {status.onTrack ? "You're on track" : 'Off track at your current savings rate'}
+              </Text>
+              <Text style={styles.projectionSub}>
+                {status.avgMonthlySurplus > 0
+                  ? `Saving about ${money(status.avgMonthlySurplus)} a month, measured from your statement`
+                  : 'No positive monthly surplus detected in your statement'}
+              </Text>
+              {status.projectedCompletionDate && (
                 <Text style={styles.projectionSub}>
-                  {status.avgMonthlySurplus > 0
-                    ? `Saving about ${money(status.avgMonthlySurplus)} a month, measured from your statement`
-                    : 'No positive monthly surplus detected in your statement'}
+                  On this rate you reach {money(goalTargetAmount)} by{' '}
+                  {formatIstDate(status.projectedCompletionDate, true)}
                 </Text>
-                {status.projectedCompletionDate && (
-                  <Text style={styles.projectionSub}>
-                    On this rate you reach {money(goalTargetAmount)} by{' '}
-                    {formatIstDate(status.projectedCompletionDate, true)}
-                  </Text>
-                )}
-                {status.suggestedMonthlyContribution ? (
-                  <Text style={styles.projectionSub}>
-                    Hitting your date needs {money(status.suggestedMonthlyContribution)} a month.
-                  </Text>
-                ) : null}
-              </View>
+              )}
+              {status.suggestedMonthlyContribution ? (
+                <Text style={styles.projectionSub}>
+                  Hitting your date needs {money(status.suggestedMonthlyContribution)} a month.
+                </Text>
+              ) : null}
             </View>
-          </FadeIn>
+          </View>
         )}
 
         {/* ── Jar history ──────────────────────────────────────────────── */}
-        <FadeIn delay={200} style={styles.card}>
+        <View style={styles.card}>
           <Text style={styles.cardTitle}>Activity</Text>
           {history.map((entry) => (
             <View key={entry.id} style={styles.historyRow}>
@@ -309,10 +320,12 @@ export const GoalsScreen: React.FC<GoalsScreenProps> = ({ onBack }) => {
               </Text>
             </View>
           ))}
-        </FadeIn>
+        </View>
 
-        <FadeIn delay={240} style={styles.bannerCard}>
-          <Text style={styles.bannerIcon}>🛟</Text>
+        <View style={styles.bannerCard}>
+          <Svg width={24} height={24} viewBox="0 0 24 24" fill="none" stroke={t.warn} strokeWidth={2} style={{ marginRight: 12 }}>
+            <Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </Svg>
           <View style={styles.bannerInfo}>
             <Text style={styles.bannerTitle}>Also your bounce buffer</Text>
             <Text style={styles.bannerSub}>
@@ -320,7 +333,7 @@ export const GoalsScreen: React.FC<GoalsScreenProps> = ({ onBack }) => {
               safety net.
             </Text>
           </View>
-        </FadeIn>
+        </View>
       </ScrollView>
     </View>
   );
@@ -339,7 +352,7 @@ const styles = StyleSheet.create({
   noticeTextOk: { color: t.ok },
   noticeTextBad: { color: t.danger },
   content: { flex: 1 },
-  scrollContent: { padding: space.md, paddingBottom: 48 },
+  scrollContent: { padding: space.md, paddingBottom: 80, flexGrow: 1 },
 
   jarSection: { alignItems: 'center', marginTop: space.sm },
   jarGlowContainer: {
@@ -402,7 +415,6 @@ const styles = StyleSheet.create({
     minWidth: 90,
     textAlign: 'center',
     padding: 0,
-    fontVariant: ['tabular-nums'],
   },
   quickRow: {
     flexDirection: 'row',
@@ -486,7 +498,7 @@ const styles = StyleSheet.create({
   historyMeta: { flex: 1 },
   historyLabel: { color: t.text, fontSize: 13, fontWeight: '600' },
   historyDate: { color: t.textFaint, fontSize: 11, marginTop: 1 },
-  historyAmount: { fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  historyAmount: { fontSize: 13, fontWeight: '700' },
   historyIn: { color: t.ok },
   historyOut: { color: t.textDim },
 

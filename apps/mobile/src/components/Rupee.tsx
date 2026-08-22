@@ -34,14 +34,7 @@ export const Rupee: React.FC<RupeeProps> = ({
   const prefixStr = isNegative ? '-₹' : showPrefix && prefix && shown > 0 ? `${prefix}₹` : '₹';
 
   return (
-    <Text
-      style={[
-        typography.body,
-        // Tabular figures stop the number jittering sideways while it counts.
-        { fontVariant: ['tabular-nums'] },
-        style,
-      ]}
-    >
+    <Text style={[typography.body, style]}>
       {prefixStr}
       {formatted}
     </Text>

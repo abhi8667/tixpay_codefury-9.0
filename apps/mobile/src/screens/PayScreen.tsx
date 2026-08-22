@@ -11,6 +11,8 @@ import { ScreenHeader } from '../components/ScreenHeader';
 import { FadeIn, PressableScale, money } from '../components/motion';
 import { Rupee } from '../components/Rupee';
 
+import { UpiPinModal } from '../components/UpiPinModal';
+
 interface PayScreenProps {
   visible: boolean;
   onClose: () => void;
@@ -41,6 +43,7 @@ export const PayScreen: React.FC<PayScreenProps> = ({ visible, onClose, onPaySuc
   const [target, setTarget] = useState<PayTarget | null>(null);
   const [amountStr, setAmountStr] = useState('');
   const [scanning, setScanning] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
 
   const ledger = useAppStore((state) => state.ledger());
   const curve = useAppStore((state) => state.curve());
@@ -60,6 +63,7 @@ export const PayScreen: React.FC<PayScreenProps> = ({ visible, onClose, onPaySuc
     setTarget(null);
     setAmountStr('');
     setScanning(false);
+    setShowPinModal(false);
   }, [visible]);
 
   const currentBalance = ledger?.currentBalance ?? curve[0]?.balance ?? 0;
@@ -106,6 +110,12 @@ export const PayScreen: React.FC<PayScreenProps> = ({ visible, onClose, onPaySuc
   };
 
   const handleConfirmPay = () => {
+    if (!target || amountVal <= 0) return;
+    setShowPinModal(true);
+  };
+
+  const handlePinSuccess = () => {
+    setShowPinModal(false);
     if (!target || amountVal <= 0) return;
     executePaymentStore(amountVal, target.name, target.vpa);
     onPaySuccess({ amount: amountVal, payeeName: target.name, vpa: target.vpa });
@@ -307,6 +317,14 @@ export const PayScreen: React.FC<PayScreenProps> = ({ visible, onClose, onPaySuc
           visible={scanning}
           onClose={() => setScanning(false)}
           onScanned={handleScanned}
+        />
+
+        <UpiPinModal
+          visible={showPinModal}
+          title={`Confirm Payment of ${money(amountVal)}`}
+          subtitle={`Pay to ${target?.name || 'Recipient'}`}
+          onSuccess={handlePinSuccess}
+          onCancel={() => setShowPinModal(false)}
         />
       </View>
     </Modal>

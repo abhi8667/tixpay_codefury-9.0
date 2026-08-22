@@ -207,6 +207,7 @@ export interface AppState {
   withdrawFromKeeper: (amount: number) => TransferResult;
   setGoal: (label: string, targetAmount: number, targetDate: Date | null) => void;
   setHorizon: (days: number) => void;
+  addCard: (card: Card) => void;
   setRiskAnswer: (questionId: string, score: number) => void;
   resetRiskAnswers: () => void;
   recompute: () => void;
@@ -916,6 +917,10 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     setHorizon: (days: number) => rebuild({ horizonDays: Math.max(7, Math.min(365, days)) }),
+
+    addCard: (card: Card) => {
+      set({ cardsList: [...get().cardsList, card] });
+    },
 
     setRiskAnswer: (questionId: string, score: number) => {
       set({ riskAnswers: { ...get().riskAnswers, [questionId]: score } });

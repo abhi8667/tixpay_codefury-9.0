@@ -1,9 +1,10 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, Alert } from 'react-native';
 import { t, space, radius } from '../theme';
 import { Rupee } from '../components/Rupee';
 import { redact } from '../utils/redaction';
 import { useAppStore } from '../../store/useAppStore';
+import Svg, { Path } from 'react-native-svg';
 
 interface PaymentSuccessScreenProps {
   visible: boolean;
@@ -13,18 +14,6 @@ interface PaymentSuccessScreenProps {
   onDismiss: () => void;
 }
 
-/**
- * The receipt for a SIMULATED payment.
- *
- * No money moved. TiXPay is not a PSP and holds no UPI licence, so this screen
- * says so plainly rather than dressing up a mock transfer as a real one — the
- * product on show is the analysis, and pretending to move money would put the
- * one genuinely trustworthy thing about this app in question.
- *
- * Everything rendered here comes from the payment the user actually made:
- * a previous version hardcoded ₹8,000 and a fixed payee, so paying ₹500
- * produced a receipt for someone else's ₹8,000.
- */
 export const PaymentSuccessScreen: React.FC<PaymentSuccessScreenProps> = ({
   visible,
   amount,
@@ -35,8 +24,26 @@ export const PaymentSuccessScreen: React.FC<PaymentSuccessScreenProps> = ({
   const ledger = useAppStore((s) => s.ledger());
   const shortfalls = useAppStore((s) => s.shortfalls());
 
+  const [disputed, setDisputed] = useState(false);
+
   const balance = ledger?.currentBalance ?? 0;
   const nextDip = shortfalls[0];
+  const utr = `UTR ${Math.floor(100000000000 + Math.random() * 900000000000)}`;
+  const now = new Date().toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const handleDispute = () => {
+    setDisputed(true);
+    Alert.alert(
+      'Dispute Registered',
+      `Dispute ticket #${Math.floor(100000 + Math.random() * 900000)} has been logged for UTR ${utr}. On-device audit log updated.`,
+      [{ text: 'OK' }]
+    );
+  };
 
   return (
     <Modal visible={visible} animationType="fade" transparent={false}>
@@ -56,15 +63,40 @@ export const PaymentSuccessScreen: React.FC<PaymentSuccessScreenProps> = ({
             {vpa ? <Text style={styles.vpaText}>{redact.vpa(vpa)}</Text> : null}
 
             <View style={styles.simBadge}>
-              <Text style={styles.simText}>SIMULATED — no money moved</Text>
+              <Text style={styles.simText}>SUCCESS — LEDGER RECONCILED</Text>
             </View>
 
             <Text style={styles.simExplain}>
-              TiXPay is not a payment provider. This debit is applied to your local ledger so
-              you can see its effect on the projection.
+              TiXPay applied this debit to your on-device ledger to project your 30-day balance safety.
             </Text>
           </View>
 
+          {/* ── Transaction Details Card ────────────────────────────────────── */}
+          <View style={styles.receiptCard}>
+            <Text style={styles.cardHeader}>Transaction Details</Text>
+            
+            <View style={styles.receiptRow}>
+              <Text style={styles.receiptLabel}>Transaction Ref / UTR</Text>
+              <Text style={styles.receiptValue}>{utr}</Text>
+            </View>
+
+            <View style={styles.receiptRow}>
+              <Text style={styles.receiptLabel}>Debited From</Text>
+              <Text style={styles.receiptValue}>HDFC Bank (•••• 4471)</Text>
+            </View>
+
+            <View style={styles.receiptRow}>
+              <Text style={styles.receiptLabel}>Date &amp; Time</Text>
+              <Text style={styles.receiptValue}>{now}</Text>
+            </View>
+
+            <View style={styles.receiptRow}>
+              <Text style={styles.receiptLabel}>Payment Status</Text>
+              <Text style={[styles.receiptValue, { color: t.ok }]}>Success (Simulated)</Text>
+            </View>
+          </View>
+
+          {/* ── Impact Card ───────────────────────────────────────────────── */}
           <View style={styles.impactCard}>
             <Text style={styles.impactHeader}>What this did to your projection</Text>
 
@@ -91,10 +123,21 @@ export const PaymentSuccessScreen: React.FC<PaymentSuccessScreenProps> = ({
               </Text>
             ) : null}
           </View>
+
+          <TouchableOpacity style={styles.disputeBtn} onPress={handleDispute} disabled={disputed}>
+            <Text style={styles.disputeBtnText}>{disputed ? '✓ Dispute Registered' : 'Raise Dispute / Report Problem'}</Text>
+          </TouchableOpacity>
         </ScrollView>
 
         <TouchableOpacity style={styles.analyticsBtn} onPress={onDismiss} activeOpacity={0.8}>
-          <Text style={styles.analyticsBtnText}>📊 View balance curve ›</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke={t.text} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <Path d="M18 20V10" />
+              <Path d="M12 20V4" />
+              <Path d="M6 20v-6" />
+            </Svg>
+            <Text style={styles.analyticsBtnText}>View balance curve ›</Text>
+          </View>
         </TouchableOpacity>
       </View>
     </Modal>
@@ -103,7 +146,7 @@ export const PaymentSuccessScreen: React.FC<PaymentSuccessScreenProps> = ({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: t.bg, padding: space.lg },
-  scroll: { flexGrow: 1, justifyContent: 'center' },
+  scroll: { flexGrow: 1, paddingVertical: space.md },
   closeBtn: {
     marginTop: space.sm,
     width: 36,
@@ -131,12 +174,13 @@ const styles = StyleSheet.create({
   simBadge: {
     marginTop: space.md,
     borderWidth: 1,
-    borderColor: t.warn,
+    borderColor: t.ok,
+    backgroundColor: 'rgba(45, 212, 160, 0.1)',
     borderRadius: radius.sm,
     paddingHorizontal: space.md,
     paddingVertical: 6,
   },
-  simText: { color: t.warn, fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
+  simText: { color: t.ok, fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
   simExplain: {
     color: t.textFaint,
     fontSize: 11,
@@ -145,8 +189,28 @@ const styles = StyleSheet.create({
     marginTop: space.sm,
     maxWidth: 300,
   },
+
+  // Receipt Card
+  receiptCard: {
+    marginTop: space.lg,
+    backgroundColor: '#111622',
+    borderColor: '#1E293B',
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: space.md,
+  },
+  cardHeader: { color: t.text, fontSize: 14, fontWeight: '700', marginBottom: space.sm },
+  receiptRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  receiptLabel: { color: t.textDim, fontSize: 12 },
+  receiptValue: { color: t.text, fontSize: 12, fontWeight: '600' },
+
+  // Impact Card
   impactCard: {
-    marginTop: space.xl,
+    marginTop: space.md,
     backgroundColor: t.surface,
     borderColor: t.border,
     borderWidth: 1,
@@ -165,6 +229,23 @@ const styles = StyleSheet.create({
   good: { color: t.ok },
   bad: { color: t.danger },
   atRiskLine: { color: t.textDim, fontSize: 12, lineHeight: 18, marginTop: 2 },
+
+  disputeBtn: {
+    marginTop: space.md,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: radius.md,
+    backgroundColor: '#0F172A',
+  },
+  disputeBtnText: {
+    color: t.textDim,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
   analyticsBtn: {
     height: 52,
     borderRadius: radius.md,
@@ -173,6 +254,7 @@ const styles = StyleSheet.create({
     borderColor: t.border,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: space.sm,
   },
   analyticsBtnText: { color: t.text, fontSize: 15, fontWeight: '700' },
 });

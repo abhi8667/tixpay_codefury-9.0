@@ -224,6 +224,7 @@ export const PressableScale: React.FC<PressableScaleProps> = ({
       accessibilityRole="button"
       {...(accessibilityLabel ? { accessibilityLabel } : {})}
       disabled={disabled}
+      style={style}
       onPressIn={() => to(0.975)}
       onPressOut={() => to(1)}
       onPress={() => {
@@ -236,7 +237,7 @@ export const PressableScale: React.FC<PressableScaleProps> = ({
         onPress?.();
       }}
     >
-      <Animated.View style={[style, { transform: [{ scale }] }, disabled && { opacity: 0.45 }]}>
+      <Animated.View style={[{ transform: [{ scale }] }, disabled && { opacity: 0.45 }]}>
         {children}
       </Animated.View>
     </Pressable>
@@ -321,19 +322,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
   style,
 }) => {
   const clamped = Math.max(0, Math.min(1, Number.isFinite(progress) ? progress : 0));
-  const width = useRef(new Animated.Value(clamped)).current;
-
-  useEffect(() => {
-    const animation = Animated.timing(width, {
-      toValue: clamped,
-      duration: 480,
-      easing: Easing.out(Easing.cubic),
-      // Width is a layout property; the native driver cannot carry it.
-      useNativeDriver: false,
-    });
-    animation.start();
-    return () => animation.stop();
-  }, [clamped, width]);
+  const pctStr = `${Math.round(clamped * 100)}%` as const;
 
   return (
     <View
@@ -342,15 +331,12 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
         style,
       ]}
     >
-      <Animated.View
+      <View
         style={{
           height,
           borderRadius: height / 2,
           backgroundColor: color,
-          width: width.interpolate({
-            inputRange: [0, 1],
-            outputRange: ['0%', '100%'],
-          }),
+          width: pctStr,
         }}
       />
     </View>

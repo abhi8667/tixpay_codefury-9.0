@@ -7,6 +7,7 @@ import { FadeIn, PressableScale, ProgressBar, Pulse, money } from '../components
 import { useAppStore } from '../../store/useAppStore';
 import { formatIstDate, PENALTY } from '@tixpay/engine';
 import type { Shortfall } from '@tixpay/types';
+import Svg, { Path, Circle, Rect, Line, Polyline, Polygon } from 'react-native-svg';
 
 interface InsightsScreenProps {
   onTapDip: (shortfall: Shortfall) => void;
@@ -92,13 +93,80 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
     0,
   );
 
-  const tools: Array<{ icon: string; label: string; onPress?: () => void }> = [
-    { icon: '📊', label: 'Spend Insights', onPress: onOpenSpendInsights },
-    { icon: '🔁', label: 'Recurring', onPress: onOpenSubscriptions },
-    { icon: '🗺️', label: 'Money Map', onPress: onOpenMoneyMap },
-    { icon: '🎚️', label: 'Risk Profile', onPress: onOpenRiskProfile },
-    { icon: '📈', label: 'SIP Check', onPress: onOpenSipCheck },
-    { icon: '💬', label: 'Money Coach', onPress: onOpenChat },
+  const tools: Array<{ id: string; icon: React.ReactNode; label: string; onPress?: () => void }> = [
+    {
+      id: 'spend',
+      label: 'Spend Insights',
+      onPress: onOpenSpendInsights,
+      icon: (
+        <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={t.warn} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <Path d="M18 20V10" />
+          <Path d="M12 20V4" />
+          <Path d="M6 20v-6" />
+        </Svg>
+      ),
+    },
+    {
+      id: 'recurring',
+      label: 'Recurring',
+      onPress: onOpenSubscriptions,
+      icon: (
+        <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#60A5FA" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <Path d="M17 2l4 4-4 4" />
+          <Path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+          <Path d="M7 22l-4-4 4-4" />
+          <Path d="M21 13v1a4 4 0 0 1-4 4H3" />
+        </Svg>
+      ),
+    },
+    {
+      id: 'map',
+      label: 'Money Map',
+      onPress: onOpenMoneyMap,
+      icon: (
+        <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#34D399" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <Polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+          <Line x1="8" y1="2" x2="8" y2="18" />
+          <Line x1="16" y1="6" x2="16" y2="22" />
+        </Svg>
+      ),
+    },
+    {
+      id: 'risk',
+      label: 'Risk Profile',
+      onPress: onOpenRiskProfile,
+      icon: (
+        <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#F472B6" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <Line x1="4" y1="21" x2="4" y2="14" />
+          <Line x1="4" y1="10" x2="4" y2="3" />
+          <Line x1="12" y1="21" x2="12" y2="12" />
+          <Line x1="12" y1="8" x2="12" y2="3" />
+          <Line x1="20" y1="21" x2="20" y2="16" />
+          <Line x1="20" y1="12" x2="20" y2="3" />
+        </Svg>
+      ),
+    },
+    {
+      id: 'sip',
+      label: 'SIP Check',
+      onPress: onOpenSipCheck,
+      icon: (
+        <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#A78BFA" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <Polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+          <Polyline points="17 6 23 6 23 12" />
+        </Svg>
+      ),
+    },
+    {
+      id: 'coach',
+      label: 'Money Coach',
+      onPress: onOpenChat,
+      icon: (
+        <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={t.warn} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </Svg>
+      ),
+    },
   ];
 
   return (
@@ -212,7 +280,9 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
 
       {mandates.length === 0 ? (
         <PressableScale style={styles.noMandatesCard} onPress={onOpenSubscriptions} haptic={false}>
-          <Text style={styles.noMandatesIcon}>🛡️</Text>
+          <Svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={t.warn} strokeWidth={2} style={{ marginRight: 10 }}>
+            <Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </Svg>
           <View style={styles.bannerText}>
             <Text style={styles.noMandatesTitle}>No auto-debits on this account</Text>
             <Text style={styles.noMandatesSub}>
@@ -231,7 +301,7 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
                 : m.displayName;
 
             return (
-              <FadeIn key={m.id} delay={Math.min(index * 30, 200)}>
+              <FadeIn key={m.id} delay={120 + index * 30}>
                 <PressableScale
                   style={[styles.mandateCard, isPaused && styles.mandateCardPaused]}
                   onPress={onOpenMandates}
@@ -262,11 +332,15 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
         </ScrollView>
       )}
 
-      {/* ── Stat tiles ──────────────────────────────────────────────── */}
+      {/* ── Metric Grid ─────────────────────────────────────────────── */}
       <View style={styles.gridRow}>
-        <FadeIn delay={80} style={styles.gridCard}>
+        <FadeIn delay={90} style={styles.gridCard}>
           <View style={styles.iconCircleYellow}>
-            <Text style={styles.iconYellow}>⚠️</Text>
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke={t.warn} strokeWidth={2}>
+              <Path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <Line x1="12" y1="9" x2="12" y2="13" />
+              <Line x1="12" y1="17" x2="12.01" y2="17" />
+            </Svg>
           </View>
           <Text style={styles.gridLabel}>Bounce risk</Text>
           <Text style={styles.gridValueYellow}>
@@ -279,7 +353,10 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
 
         <FadeIn delay={110} style={styles.gridCard}>
           <View style={styles.iconCircleGreen}>
-            <Text style={styles.iconGreen}>👛</Text>
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke={t.ok} strokeWidth={2}>
+              <Path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <Path d="M22 4L12 14.01l-3-3" />
+            </Svg>
           </View>
           <Text style={styles.gridLabel}>Safe to spend</Text>
           <Rupee amount={safeSpendAmount} style={styles.gridValueGreen} showPrefix={false} />
@@ -293,12 +370,16 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
       <FadeIn delay={140}>
         <PressableScale style={styles.keeperCard} onPress={onOpenKeeper} haptic={false}>
           <View style={styles.jarGraphicPlaceholder}>
-            <Text style={styles.jarEmoji}>🎯</Text>
+            <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={t.warn} strokeWidth={2}>
+              <Circle cx="12" cy="12" r="10" />
+              <Circle cx="12" cy="12" r="6" />
+              <Circle cx="12" cy="12" r="2" fill={t.warn} />
+            </Svg>
           </View>
           <View style={styles.keeperInfo}>
             <Text style={styles.keeperTitle}>{goalLabel}</Text>
             <Text style={styles.keeperSub}>Saving toward {money(goalTargetAmount)}</Text>
-            <Rupee amount={keeperBalance} style={styles.keeperAmount} showPrefix={false} animate />
+            <Rupee amount={keeperBalance} style={styles.keeperAmount} showPrefix={false} animate={false} />
             <ProgressBar progress={keeperProgress} height={4} style={styles.keeperTrack} />
           </View>
           <Text style={styles.keeperPct}>{Math.round(keeperProgress * 100)}% ›</Text>
@@ -313,7 +394,7 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
         {tools.map((tool, index) => (
           <FadeIn key={tool.label} delay={160 + index * 25} style={styles.toolWrap}>
             <PressableScale style={styles.toolCard} onPress={tool.onPress}>
-              <Text style={styles.toolIcon}>{tool.icon}</Text>
+              <View style={styles.toolIconWrap}>{tool.icon}</View>
               <Text style={styles.toolLabel}>{tool.label}</Text>
             </PressableScale>
           </FadeIn>
@@ -567,6 +648,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.xs,
     alignItems: 'center',
   },
-  toolIcon: { fontSize: 22, marginBottom: space.xs },
+  toolIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: space.xs,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
   toolLabel: { color: t.text, fontSize: 11, fontWeight: '600', textAlign: 'center' },
 });

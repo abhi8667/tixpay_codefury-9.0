@@ -85,25 +85,27 @@ export const PayeePicker: React.FC<PayeePickerProps> = ({ onSelect, onScan }) =>
         onPress={() => onSelect({ name: p.name, vpa: p.vpa })}
         accessibilityLabel={`Pay ${p.name}`}
       >
-        <View style={[styles.avatar, { borderColor: colorFor(p.id) }]}>
-          <Text style={[styles.avatarText, { color: colorFor(p.id) }]}>
-            {p.name.charAt(0).toUpperCase()}
-          </Text>
-        </View>
-        <View style={styles.payeeMeta}>
-          <Text style={styles.payeeName} numberOfLines={1}>
-            {p.name}
-          </Text>
-          <Text style={styles.payeeVpa} numberOfLines={1}>
-            {redactionOn ? redact.vpa(p.vpa) : p.vpa}
-          </Text>
-        </View>
-        <View style={styles.payeeRight}>
-          <Text style={styles.payeeLast}>{money(p.lastAmount)}</Text>
-          <Text style={styles.payeeWhen}>
-            {p.timesPaid > 1 ? `${p.timesPaid}× · ` : ''}
-            {formatIstDate(p.lastPaid)}
-          </Text>
+        <View style={styles.payeeRowInner}>
+          <View style={[styles.avatar, { borderColor: colorFor(p.id) }]}>
+            <Text style={[styles.avatarText, { color: colorFor(p.id) }]}>
+              {p.name.charAt(0).toUpperCase()}
+            </Text>
+          </View>
+          <View style={styles.payeeMeta}>
+            <Text style={styles.payeeName} numberOfLines={1}>
+              {p.name}
+            </Text>
+            <Text style={styles.payeeVpa} numberOfLines={1}>
+              {redactionOn ? redact.vpa(p.vpa) : p.vpa}
+            </Text>
+          </View>
+          <View style={styles.payeeRight}>
+            <Text style={styles.payeeLast}>{money(p.lastAmount)}</Text>
+            <Text style={styles.payeeWhen}>
+              {p.timesPaid > 1 ? `${p.timesPaid}× · ` : ''}
+              {formatIstDate(p.lastPaid)}
+            </Text>
+          </View>
         </View>
       </PressableScale>
     </FadeIn>
@@ -304,11 +306,14 @@ const styles = StyleSheet.create({
     marginBottom: space.sm,
   },
   payeeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: t.border,
+  },
+  payeeRowInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
   avatar: {
     width: 40,
@@ -325,6 +330,6 @@ const styles = StyleSheet.create({
   payeeName: { color: t.text, fontSize: 14, fontWeight: '600' },
   payeeVpa: { color: t.textDim, fontSize: 11, marginTop: 1 },
   payeeRight: { alignItems: 'flex-end' },
-  payeeLast: { color: t.text, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  payeeLast: { color: t.text, fontSize: 13, fontWeight: '700' },
   payeeWhen: { color: t.textFaint, fontSize: 10, marginTop: 1 },
 });

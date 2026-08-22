@@ -1,102 +1,106 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, Animated, Easing, StyleSheet } from 'react-native';
-import { t, space } from '../theme';
+import React from 'react';
+import { View, Text, StyleSheet, Platform } from 'react-native';
+import Svg, { Path, Rect } from 'react-native-svg';
+import { t } from '../theme';
 import { PressableScale } from './motion';
 
-export type TabName = 'Insights' | 'Pay' | 'Keeper' | 'Mandates';
+export type TabName = 'Insights' | 'Bank' | 'Home' | 'Pay' | 'Keeper';
 
-/** Display label per tab — the 'Keeper' identifier stays internal so the rest
- *  of the app's plumbing (ScreenMode, store) doesn't need to change with it. */
 const TAB_LABELS: Record<TabName, string> = {
   Insights: 'Insights',
+  Bank: 'Bank',
+  Home: 'Home',
   Pay: 'Pay',
-  Keeper: 'Goals',
-  Mandates: 'Mandates',
+  Keeper: 'Keeper',
 };
+
+const TABS: TabName[] = ['Insights', 'Bank', 'Home', 'Pay', 'Keeper'];
 
 interface BottomTabBarProps {
   activeTab: TabName;
   onTabChange: (tab: TabName) => void;
 }
 
-// Four tabs, each landing on a screen that works. A fifth that opened a static
-// mockup was worse than not having it.
-const TABS: { name: TabName; icon: string }[] = [
-  { name: 'Insights', icon: '📊' },
-  { name: 'Pay', icon: '💳' },
-  { name: 'Keeper', icon: '🎯' },
-  { name: 'Mandates', icon: '🛡️' },
-];
+const TabIcon: React.FC<{ tab: TabName; color: string; isCenter?: boolean }> = ({ tab, color, isCenter }) => {
+  const size = isCenter ? 26 : 22;
+  const strokeWidth = 1.8;
+
+  switch (tab) {
+    case 'Insights':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+          <Path d="M18 20V10" />
+          <Path d="M12 20V4" />
+          <Path d="M6 20v-6" />
+        </Svg>
+      );
+    case 'Bank':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+          <Path d="M3 21h18" />
+          <Path d="M3 10h18" />
+          <Path d="M5 6l7-3 7 3" />
+          <Path d="M4 10v11" />
+          <Path d="M20 10v11" />
+          <Path d="M8 10v7" />
+          <Path d="M12 10v7" />
+          <Path d="M16 10v7" />
+        </Svg>
+      );
+    case 'Home':
+      // Stylized X brand logo icon
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+          <Path d="M6 4L18 20" />
+          <Path d="M18 4L6 20" />
+          <Path d="M12 9l3-3" strokeWidth={1.5} />
+          <Path d="M12 15l-3 3" strokeWidth={1.5} />
+        </Svg>
+      );
+    case 'Pay':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+          <Rect x="2" y="5" width="20" height="14" rx="2" />
+          <Path d="M2 10h20" />
+        </Svg>
+      );
+    case 'Keeper':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+          <Path d="M6 3h12v2H6z" />
+          <Path d="M5 5v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V5" />
+          <Path d="M9 11h6" />
+          <Path d="M9 15h6" />
+        </Svg>
+      );
+  }
+};
 
 export const BottomTabBar: React.FC<BottomTabBarProps> = ({ activeTab, onTabChange }) => {
-  const index = Math.max(
-    0,
-    TABS.findIndex((tab) => tab.name === activeTab),
-  );
-
-  /**
-   * One indicator that slides, rather than four that blink.
-   *
-   * A per-tab indicator appearing and disappearing reads as two unrelated
-   * events. A single bar travelling between them says the two tabs are places
-   * in the same row, which is the whole point of a tab bar.
-   */
-  const slide = useRef(new Animated.Value(index)).current;
-
-  useEffect(() => {
-    const animation = Animated.timing(slide, {
-      toValue: index,
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
-      // Interpolating to a percentage string is a layout value.
-      useNativeDriver: false,
-    });
-    animation.start();
-    // Frames are not delivered while the app is backgrounded; land the bar
-    // under the right tab regardless.
-    const settle = setTimeout(() => slide.setValue(index), 300);
-    return () => {
-      animation.stop();
-      clearTimeout(settle);
-    };
-  }, [index, slide]);
-
-  const width = `${100 / TABS.length}%`;
+  const activeColor = t.warn; // Gold accent #E69C24
+  const inactiveColor = 'rgba(255, 255, 255, 0.45)';
 
   return (
     <View style={styles.container}>
-      <Animated.View
-        style={[
-          styles.indicatorTrack,
-          {
-            width: width as `${number}%`,
-            transform: [
-              {
-                translateX: slide.interpolate({
-                  inputRange: TABS.map((_, i) => i),
-                  outputRange: TABS.map((_, i) => `${i * 100}%`),
-                }),
-              },
-            ],
-          },
-        ]}
-      >
-        <View style={styles.indicator} />
-      </Animated.View>
-
       {TABS.map((tab) => {
-        const isActive = activeTab === tab.name;
+        const isActive = activeTab === tab;
+        const color = isActive ? activeColor : inactiveColor;
+        const isCenter = tab === 'Home';
+
         return (
           <PressableScale
-            key={tab.name}
+            key={tab}
             style={styles.tabItem}
-            onPress={() => onTabChange(tab.name)}
-            accessibilityLabel={TAB_LABELS[tab.name]}
+            onPress={() => onTabChange(tab)}
+            accessibilityLabel={TAB_LABELS[tab]}
           >
-            <Text style={[styles.tabIcon, isActive && styles.activeIcon]}>{tab.icon}</Text>
+            <View style={[styles.iconWrapper, isCenter && styles.centerIconWrapper]}>
+              <TabIcon tab={tab} color={color} isCenter={isCenter} />
+            </View>
             <Text style={[styles.tabLabel, isActive && styles.activeLabel]}>
-              {TAB_LABELS[tab.name]}
+              {TAB_LABELS[tab]}
             </Text>
+            {isActive ? <View style={styles.activeDot} /> : <View style={styles.dotPlaceholder} />}
           </PressableScale>
         );
       })}
@@ -106,46 +110,50 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({ activeTab, onTabChan
 
 const styles = StyleSheet.create({
   container: {
-    height: 64,
+    width: '100%',
+    height: Platform.OS === 'ios' ? 72 : 66,
     backgroundColor: '#0A0C10',
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
     borderTopWidth: 1,
     borderTopColor: '#1A202C',
-    paddingBottom: 4,
-  },
-  indicatorTrack: {
-    position: 'absolute',
-    bottom: 6,
-    left: 0,
-    alignItems: 'center',
-  },
-  indicator: {
-    width: 24,
-    height: 3,
-    backgroundColor: t.warn,
-    borderRadius: 1.5,
+    paddingBottom: Platform.OS === 'ios' ? 12 : 6,
   },
   tabItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: space.xs,
+    paddingVertical: 2,
   },
-  tabIcon: {
-    fontSize: 18,
-    opacity: 0.5,
+  iconWrapper: {
+    height: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 2,
   },
-  activeIcon: {
-    opacity: 1,
+  centerIconWrapper: {
+    transform: [{ scale: 1.1 }],
   },
   tabLabel: {
     fontSize: 11,
     fontWeight: '500',
-    color: t.textDim,
+    color: 'rgba(255, 255, 255, 0.45)',
   },
   activeLabel: {
-    color: t.warn, // Gold accent for active tab label
+    color: t.warn,
     fontWeight: '700',
+  },
+  activeDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: t.warn,
+    marginTop: 3,
+  },
+  dotPlaceholder: {
+    width: 4,
+    height: 4,
+    marginTop: 3,
   },
 });

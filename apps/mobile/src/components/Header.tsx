@@ -2,6 +2,8 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { t, radius, space } from '../theme';
 
+import Svg, { Path } from 'react-native-svg';
+
 interface HeaderProps {
   showBack?: boolean;
   onBackPress?: () => void;
@@ -49,11 +51,16 @@ export const Header: React.FC<HeaderProps> = ({
       <View style={styles.right}>
         {onChatPress && (
           <TouchableOpacity onPress={onChatPress} style={styles.iconBtn}>
-            <Text style={styles.bellIcon}>💬</Text>
+            <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={t.warn} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </Svg>
           </TouchableOpacity>
         )}
         <TouchableOpacity onPress={onNotificationPress} style={styles.iconBtn}>
-          <Text style={styles.bellIcon}>🔔</Text>
+          <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#E8ECF2" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <Path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+            <Path d="M13.73 21a2 2 0 0 1-3.46 0" />
+          </Svg>
           <View style={styles.badgeDot} />
         </TouchableOpacity>
       </View>
