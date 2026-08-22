@@ -1,0 +1,10 @@
+import { readFileSync } from 'node:fs';
+import { parseStatementCsv, runPipeline, categorizeTransaction, startOfIstDay, addDays } from '../src/index';
+const { txns, meta } = parseStatementCsv(readFileSync(process.argv[2]!, 'utf8'));
+console.log('bank', meta.bank);
+const now = new Date(Math.max(...txns.map((t) => t.timestamp.getTime())));
+const res = runPipeline(txns, now);
+const to = startOfIstDay(now), from = addDays(to, -30);
+const w = res.txns.filter(t => t.direction==='DEBIT' && !t.isFailure && t.timestamp>=from && t.timestamp<to);
+const other = w.filter(t => categorizeTransaction(t) === 'OTHER').sort((a,b)=>b.amount-a.amount);
+for (const t of other) console.log(t.amount, '|', t.merchantName, '|', t.vpa, '|', (t.merchantHint??'').slice(0,60));

@@ -1,317 +1,302 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Modal } from 'react-native';
 import { t, typography, space, radius } from '../theme';
 import { Rupee } from '../components/Rupee';
+import { ScreenHeader } from '../components/ScreenHeader';
+import { FadeIn, PressableScale, EmptyState, money } from '../components/motion';
 import { useAppStore } from '../../store/useAppStore';
 import { formatIstDate } from '@tixpay/engine';
-import type { Cadence } from '@tixpay/types';
+import type { Cadence, Mandate, Priority } from '@tixpay/types';
 
 /** 'MONTHLY' reads as shouting in a list; the cadence is shown, not asserted. */
 const cadenceLabel = (c: Cadence): string =>
   c === 'MONTHLY' ? 'Monthly' : c === 'WEEKLY' ? 'Weekly' : 'Quarterly';
 
+const PRIORITY_META: Record<Priority, { label: string; color: string }> = {
+  CRITICAL: { label: 'Critical', color: t.danger },
+  HIGH: { label: 'High', color: t.warn },
+  MEDIUM: { label: 'Medium', color: t.accent },
+  LOW: { label: 'Low', color: t.textDim },
+};
+
+const ORDER: Priority[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+
 interface MandateHubScreenProps {
   onBack?: () => void;
+  onOpenSubscriptions?: () => void;
 }
 
-export const MandateHubScreen: React.FC<MandateHubScreenProps> = ({ onBack }) => {
-  const [activeFilter, setActiveFilter] = useState<'ALL' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
+/**
+ * Every recurring debit the detector is confident enough to project.
+ *
+ * Two things changed here. Rows used to toggle a pause the instant they were
+ * touched — a scroll that caught a finger silently removed a debit from the
+ * projection, which is the one interaction in this app that must not be
+ * accidental. And with no mandates the screen rendered nothing at all, which on
+ * a real statement (most personal accounts carry no NACH auto-debits) read as a
+ * crash rather than as an answer.
+ */
+export const MandateHubScreen: React.FC<MandateHubScreenProps> = ({
+  onBack,
+  onOpenSubscriptions,
+}) => {
+  const [activeFilter, setActiveFilter] = useState<'ALL' | Priority>('ALL');
+  const [detail, setDetail] = useState<Mandate | null>(null);
+
   const mandates = useAppStore((state) => state.mandates());
   const pausedMandateIds = useAppStore((state) => state.pausedMandateIds);
   const togglePauseMandate = useAppStore((state) => state.togglePauseMandate);
   const redactionOn = useAppStore((state) => state.redactionOn);
+  const imported = useAppStore((state) => state.imported);
 
-  const criticals = mandates.filter((m) => m.priority === 'CRITICAL');
-  const highs = mandates.filter((m) => m.priority === 'HIGH');
-  const mediums = mandates.filter((m) => m.priority === 'MEDIUM');
-  const lows = mandates.filter((m) => m.priority === 'LOW');
+  const counts = useMemo(() => {
+    const map: Record<string, number> = { ALL: mandates.length };
+    for (const p of ORDER) map[p] = mandates.filter((m) => m.priority === p).length;
+    return map;
+  }, [mandates]);
 
-  const filters = [
-    { label: `All ${mandates.length}`, val: 'ALL' },
-    { label: `Critical ${criticals.length}`, val: 'CRITICAL' },
-    { label: `High ${highs.length}`, val: 'HIGH' },
-    { label: `Medium ${mediums.length}`, val: 'MEDIUM' },
-    { label: `Low ${lows.length}`, val: 'LOW' },
+  const monthlyTotal = useMemo(
+    () =>
+      mandates
+        .filter((m) => !pausedMandateIds.includes(m.id))
+        .reduce(
+          (sum, m) =>
+            sum + m.amount * (m.cadence === 'MONTHLY' ? 1 : m.cadence === 'WEEKLY' ? 52 / 12 : 1 / 3),
+          0,
+        ),
+    [mandates, pausedMandateIds],
+  );
+
+  const visible = useMemo(() => {
+    const list = activeFilter === 'ALL' ? mandates : mandates.filter((m) => m.priority === activeFilter);
+    return [...list].sort((a, b) => {
+      const rank = ORDER.indexOf(a.priority) - ORDER.indexOf(b.priority);
+      return rank !== 0 ? rank : a.nextDebit.getTime() - b.nextDebit.getTime();
+    });
+  }, [mandates, activeFilter]);
+
+  const filters: Array<{ label: string; val: 'ALL' | Priority }> = [
+    { label: `All ${counts.ALL}`, val: 'ALL' },
+    ...ORDER.filter((p) => (counts[p] ?? 0) > 0).map((p) => ({
+      label: `${PRIORITY_META[p].label} ${counts[p]}`,
+      val: p,
+    })),
   ];
+
+  const display = (name: string) =>
+    redactionOn && name.length > 8 ? `${name.slice(0, 4)}••••` : name;
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.headerRow}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Text style={styles.backText}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Mandate Hub</Text>
-        <Text style={styles.filterIcon}>∇</Text>
-      </View>
+      <ScreenHeader
+        title="Mandate Hub"
+        onBack={onBack}
+        subtitle={
+          mandates.length > 0 ? `${money(monthlyTotal)} a month committed` : 'Recurring auto-debits'
+        }
+      />
 
-      {/* Category Tabs */}
-      <View style={styles.tabRow}>
-        {filters.map((f) => {
-          const isActive = activeFilter === f.val;
-          return (
-            <TouchableOpacity
-              key={f.val}
-              style={[styles.tabItem, isActive && styles.activeTabItem]}
-              onPress={() => setActiveFilter(f.val as any)}
-            >
-              <Text style={[styles.tabText, isActive && styles.activeTabText]}>
-                {f.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
-        {/* CRITICAL SECTION */}
-        {(activeFilter === 'ALL' || activeFilter === 'CRITICAL') && criticals.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.criticalTitle}>CRITICAL</Text>
-            {criticals.map((m) => {
-              const isPaused = pausedMandateIds.includes(m.id);
-              const displayName = redactionOn && m.displayName.length > 8
-                ? `${m.displayName.slice(0, 4)}••••`
-                : m.displayName;
-
+      {mandates.length === 0 ? (
+        <ScrollView contentContainerStyle={styles.emptyWrap}>
+          <EmptyState
+            icon="🛡️"
+            title="No auto-debits found"
+            body={
+              imported
+                ? `We read ${imported.parsed} rows and found no counterparty billing this account on a fixed schedule with the regularity the projection needs.`
+                : 'Import a statement and this fills in.'
+            }
+            hint="That is a real answer, not a failure — most personal UPI accounts carry no NACH or ECS mandates at all. The bounce guard simply has nothing to warn about here."
+            {...(onOpenSubscriptions
+              ? {
+                  action: {
+                    label: 'Look for repeating charges instead',
+                    onPress: onOpenSubscriptions,
+                  },
+                }
+              : {})}
+          />
+          <Text style={styles.emptyFootnote}>
+            The Mandate Hub is deliberately strict: three occurrences, amounts within 5%, and a
+            tight cadence band. Anything looser would put a debit on your projected balance that
+            may never arrive, and every rupee downstream would inherit the mistake.
+          </Text>
+        </ScrollView>
+      ) : (
+        <>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.tabScroll}
+            contentContainerStyle={styles.tabRow}
+          >
+            {filters.map((f) => {
+              const isActive = activeFilter === f.val;
               return (
-                <TouchableOpacity
-                  key={m.id}
-                  style={[styles.mandateRow, isPaused && styles.mandateRowPaused]}
-                  onPress={() => togglePauseMandate(m.id)}
-                  activeOpacity={0.7}
+                <PressableScale
+                  key={f.val}
+                  style={[styles.tabItem, isActive && styles.activeTabItem]}
+                  onPress={() => setActiveFilter(f.val)}
+                  haptic={false}
                 >
-                  <View style={styles.logoCircle}>
-                    <Text style={styles.logoText}>{m.category}</Text>
-                  </View>
-                  <View style={styles.mandateInfo}>
-                    <Text style={styles.mandateName}>{displayName}</Text>
-                    <Text style={styles.mandateMeta}>
-                      {cadenceLabel(m.cadence)} • Next: {formatIstDate(m.nextDebit)}{isPaused ? ' (PAUSED)' : ''}
-                    </Text>
-                    <Text style={styles.provenanceText}>
-                      {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} statement rows
-                    </Text>
-                  </View>
-                  <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
-                </TouchableOpacity>
+                  <Text style={[styles.tabText, isActive && styles.activeTabText]}>{f.label}</Text>
+                </PressableScale>
               );
             })}
-          </View>
-        )}
+          </ScrollView>
 
-        {/* HIGH SECTION */}
-        {(activeFilter === 'ALL' || activeFilter === 'HIGH') && highs.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.highTitle}>HIGH</Text>
-            {highs.map((m) => {
+          <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
+            {visible.map((m, index) => {
               const isPaused = pausedMandateIds.includes(m.id);
-              const displayName = redactionOn && m.displayName.length > 8
-                ? `${m.displayName.slice(0, 4)}••••`
-                : m.displayName;
-
+              const prio = PRIORITY_META[m.priority];
               return (
-                <TouchableOpacity
-                  key={m.id}
-                  style={[styles.mandateRow, isPaused && styles.mandateRowPaused]}
-                  onPress={() => togglePauseMandate(m.id)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.logoCircle}>
-                    <Text style={styles.logoText}>{m.displayName.slice(0, 2).toUpperCase()}</Text>
-                  </View>
-                  <View style={styles.mandateInfo}>
-                    <Text style={styles.mandateName}>{displayName}</Text>
-                    <Text style={styles.mandateMeta}>
-                      {cadenceLabel(m.cadence)} • Next: {formatIstDate(m.nextDebit)}{isPaused ? ' (PAUSED)' : ''}
-                    </Text>
-                    <Text style={styles.provenanceText}>
-                      {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} statement rows
-                    </Text>
-                  </View>
-                  <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
-                </TouchableOpacity>
+                <FadeIn key={m.id} delay={Math.min(index * 30, 240)}>
+                  <PressableScale
+                    style={[styles.mandateRow, isPaused && styles.mandateRowPaused]}
+                    onPress={() => setDetail(m)}
+                    haptic={false}
+                  >
+                    <View style={[styles.logoCircle, { borderColor: prio.color }]}>
+                      <Text style={[styles.logoText, { color: prio.color }]}>
+                        {m.category === 'OTHER'
+                          ? m.displayName.slice(0, 2).toUpperCase()
+                          : m.category}
+                      </Text>
+                    </View>
+                    <View style={styles.mandateInfo}>
+                      <Text style={styles.mandateName}>{display(m.displayName)}</Text>
+                      <Text style={styles.mandateMeta}>
+                        {cadenceLabel(m.cadence)} · next {formatIstDate(m.nextDebit)}
+                        {isPaused ? ' · PAUSED' : ''}
+                      </Text>
+                      <Text style={styles.provenanceText}>
+                        {Math.round(m.confidence * 100)}% confidence · found from {m.occurrences}{' '}
+                        statement rows
+                      </Text>
+                    </View>
+                    <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
+                  </PressableScale>
+                </FadeIn>
               );
             })}
-          </View>
-        )}
 
-        {/* MEDIUM SECTION */}
-        {(activeFilter === 'ALL' || activeFilter === 'MEDIUM') && mediums.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.mediumTitle}>MEDIUM</Text>
-            {mediums.map((m) => {
-              const isPaused = pausedMandateIds.includes(m.id);
-              const displayName = redactionOn && m.displayName.length > 8
-                ? `${m.displayName.slice(0, 4)}••••`
-                : m.displayName;
-
-              return (
-                <TouchableOpacity
-                  key={m.id}
-                  style={[styles.mandateRow, isPaused && styles.mandateRowPaused]}
-                  onPress={() => togglePauseMandate(m.id)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.logoCircle}>
-                    <Text style={styles.logoText}>⚡</Text>
-                  </View>
-                  <View style={styles.mandateInfo}>
-                    <Text style={styles.mandateName}>{displayName}</Text>
-                    <Text style={styles.mandateMeta}>
-                      {cadenceLabel(m.cadence)} • Next: {formatIstDate(m.nextDebit)}{isPaused ? ' (PAUSED)' : ''}
-                    </Text>
-                    <Text style={styles.provenanceText}>
-                      {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} statement rows
-                    </Text>
-                  </View>
-                  <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
-
-        {/* LOW SECTION */}
-        {(activeFilter === 'ALL' || activeFilter === 'LOW') && lows.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.lowTitle}>LOW</Text>
-            {lows.map((m) => {
-              const isPaused = pausedMandateIds.includes(m.id);
-              const displayName = redactionOn && m.displayName.length > 8
-                ? `${m.displayName.slice(0, 4)}••••`
-                : m.displayName;
-
-              return (
-                <TouchableOpacity
-                  key={m.id}
-                  style={[styles.mandateRow, isPaused && styles.mandateRowPaused]}
-                  onPress={() => togglePauseMandate(m.id)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.logoCircle}>
-                    <Text style={styles.logoText}>OTT</Text>
-                  </View>
-                  <View style={styles.mandateInfo}>
-                    <Text style={styles.mandateName}>{displayName}</Text>
-                    <Text style={styles.mandateMeta}>
-                      {cadenceLabel(m.cadence)} • Next: {formatIstDate(m.nextDebit)}{isPaused ? ' (PAUSED)' : ''}
-                    </Text>
-                    <Text style={styles.provenanceText}>
-                      {Math.round(m.confidence * 100)}% confidence • Found from {m.occurrences} statement rows
-                    </Text>
-                  </View>
-                  <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
-
-        <View style={styles.confidenceCard}>
-          <Text style={styles.shieldIcon}>🛡️</Text>
-          <View style={styles.confidenceMeta}>
-            <Text style={styles.confidenceCardTitle}>Confidence levels</Text>
-            <Text style={styles.confidenceCardSub}>
-              Median gap between debits, how many we found, and how regular they are
+            <Text style={styles.listFootnote}>
+              Tap any mandate for how it was found, and to pause it. Pausing removes the debit
+              from the 30-day projection, so the curve and the bounce guard both change.
             </Text>
-          </View>
-          <Text style={styles.arrowRight}>›</Text>
+          </ScrollView>
+        </>
+      )}
+
+      {/* ── Detail sheet ─────────────────────────────────────────────── */}
+      <Modal visible={detail !== null} transparent animationType="slide">
+        <View style={styles.overlay}>
+          <PressableScale
+            style={styles.dismissArea}
+            onPress={() => setDetail(null)}
+            haptic={false}
+          >
+            <View style={styles.dismissFill} />
+          </PressableScale>
+
+          {detail && (
+            <View style={styles.sheet}>
+              <View style={styles.handleBar} />
+              <Text style={styles.sheetTitle}>{detail.displayName}</Text>
+              <Text style={styles.sheetSub}>
+                {money(detail.amount)} · {cadenceLabel(detail.cadence)} · next{' '}
+                {formatIstDate(detail.nextDebit, true)}
+              </Text>
+
+              <View style={styles.sheetGrid}>
+                <Detail label="Priority" value={PRIORITY_META[detail.priority].label} />
+                <Detail label="Category" value={detail.category} />
+                <Detail
+                  label="Confidence"
+                  value={`${Math.round(detail.confidence * 100)}%`}
+                />
+                <Detail label="Occurrences" value={`${detail.occurrences} rows`} />
+              </View>
+
+              <Text style={styles.sheetExplain}>
+                Detected by grouping {detail.occurrences} debits to{' '}
+                <Text style={styles.sheetMono}>{detail.normalizedVpa}</Text> within 5% of{' '}
+                {money(detail.amount)}, then taking the median gap between them. Confidence is
+                0.6 × how many occurrences we have, plus 0.4 × how regular the gaps are.
+              </Text>
+
+              <PressableScale
+                style={[
+                  styles.sheetBtn,
+                  pausedMandateIds.includes(detail.id) ? styles.sheetBtnResume : styles.sheetBtnPause,
+                ]}
+                onPress={() => {
+                  togglePauseMandate(detail.id);
+                  setDetail(null);
+                }}
+              >
+                <Text style={styles.sheetBtnText}>
+                  {pausedMandateIds.includes(detail.id)
+                    ? 'Resume this debit'
+                    : 'Pause this debit in the projection'}
+                </Text>
+              </PressableScale>
+
+              <PressableScale
+                style={styles.sheetCancel}
+                onPress={() => setDetail(null)}
+                haptic={false}
+              >
+                <Text style={styles.sheetCancelText}>Close</Text>
+              </PressableScale>
+            </View>
+          )}
         </View>
-      </ScrollView>
+      </Modal>
     </View>
   );
 };
 
+const Detail: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <View style={styles.detailCell}>
+    <Text style={styles.detailLabel}>{label}</Text>
+    <Text style={styles.detailValue}>{value}</Text>
+  </View>
+);
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: t.bg,
+  container: { flex: 1, backgroundColor: t.bg },
+  emptyWrap: { paddingHorizontal: space.md, paddingBottom: 40 },
+  emptyFootnote: {
+    color: t.textFaint,
+    fontSize: 11,
+    lineHeight: 17,
+    marginTop: space.md,
+    textAlign: 'center',
   },
-  headerRow: {
-    height: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: space.md,
-  },
-  backBtn: {
-    padding: space.xs,
-  },
-  backText: {
-    color: t.text,
-    fontSize: 22,
-    fontWeight: '600',
-  },
-  headerTitle: {
-    color: t.text,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  filterIcon: {
-    color: t.textDim,
-    fontSize: 18,
-  },
+
+  tabScroll: { maxHeight: 52, flexGrow: 0 },
   tabRow: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: t.border,
+    gap: space.xs,
     paddingHorizontal: space.md,
+    paddingVertical: space.sm,
   },
   tabItem: {
-    paddingVertical: space.sm,
-    marginRight: space.md,
+    paddingHorizontal: space.md,
+    paddingVertical: 6,
+    borderRadius: radius.lg,
+    backgroundColor: t.surface,
+    borderWidth: 1,
+    borderColor: t.border,
   },
-  activeTabItem: {
-    borderBottomWidth: 2,
-    borderBottomColor: t.warn,
-  },
-  tabText: {
-    color: t.textDim,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  activeTabText: {
-    color: t.warn,
-    fontWeight: '700',
-  },
-  content: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: space.md,
-  },
-  section: {
-    marginBottom: space.lg,
-  },
-  criticalTitle: {
-    color: t.danger,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginBottom: space.xs,
-  },
-  highTitle: {
-    color: t.warn,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginBottom: space.xs,
-  },
-  mediumTitle: {
-    color: t.ok,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginBottom: space.xs,
-  },
-  lowTitle: {
-    color: t.textDim,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginBottom: space.xs,
-  },
+  activeTabItem: { backgroundColor: '#262010', borderColor: t.warn },
+  tabText: { color: t.textDim, fontSize: 12, fontWeight: '600' },
+  activeTabText: { color: t.warn, fontWeight: '700' },
+
+  content: { flex: 1 },
+  scrollContent: { paddingHorizontal: space.md, paddingBottom: 48 },
+
   mandateRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -320,76 +305,78 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: radius.md,
     padding: space.md,
-    marginBottom: space.xs,
+    marginBottom: space.sm,
   },
-  mandateRowPaused: {
-    borderColor: t.ok,
-    backgroundColor: '#0A261C',
-  },
+  mandateRowPaused: { borderColor: t.ok, backgroundColor: '#0A1F18', opacity: 0.85 },
   logoCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 1.5,
     backgroundColor: t.surfaceHi,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: space.md,
   },
-  logoText: {
-    color: t.warn,
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  mandateInfo: {
-    flex: 1,
-  },
-  mandateName: {
-    color: t.text,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  mandateMeta: {
-    color: t.textDim,
-    fontSize: 12,
-    marginVertical: 2,
-  },
-  provenanceText: {
-    color: t.textFaint,
-    fontSize: 11,
-  },
+  logoText: { fontSize: 9, fontWeight: '900' },
+  mandateInfo: { flex: 1, marginRight: space.sm },
+  mandateName: { color: t.text, fontSize: 14, fontWeight: '700' },
+  mandateMeta: { color: t.textDim, fontSize: 11, marginTop: 2 },
+  provenanceText: { color: t.textFaint, fontSize: 10, marginTop: 2 },
   mandateAmount: {
     color: t.text,
     fontSize: 16,
     fontWeight: '800',
   },
-  confidenceCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: t.surface,
+  listFootnote: { color: t.textFaint, fontSize: 11, lineHeight: 17, marginTop: space.sm },
+
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  dismissArea: { flex: 1 },
+  dismissFill: { flex: 1 },
+  sheet: {
+    backgroundColor: t.bg,
+    borderTopLeftRadius: radius.sheet,
+    borderTopRightRadius: radius.sheet,
+    borderTopWidth: 1,
     borderColor: t.border,
-    borderWidth: 1,
-    borderRadius: radius.md,
     padding: space.md,
+    paddingBottom: space.lg,
+  },
+  handleBar: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: t.textFaint,
+    alignSelf: 'center',
+    marginBottom: space.md,
+  },
+  sheetTitle: { ...typography.title },
+  sheetSub: { color: t.textDim, fontSize: 13, marginTop: 2 },
+  sheetGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     marginTop: space.md,
+    backgroundColor: t.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: t.border,
+    padding: space.sm,
   },
-  shieldIcon: {
-    fontSize: 20,
-    marginRight: space.md,
+  detailCell: { width: '50%', paddingVertical: 6, paddingHorizontal: space.xs },
+  detailLabel: { color: t.textFaint, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
+  detailValue: { color: t.text, fontSize: 14, fontWeight: '700', marginTop: 2 },
+  sheetExplain: { color: t.textDim, fontSize: 12, lineHeight: 18, marginTop: space.md },
+  sheetMono: { color: t.text, fontWeight: '600' },
+  sheetBtn: {
+    marginTop: space.md,
+    height: 48,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  confidenceMeta: {
-    flex: 1,
-  },
-  confidenceCardTitle: {
-    color: t.text,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  confidenceCardSub: {
-    color: t.textDim,
-    fontSize: 12,
-  },
-  arrowRight: {
-    color: t.textDim,
-    fontSize: 18,
-  },
+  sheetBtnPause: { backgroundColor: t.warn },
+  sheetBtnResume: { backgroundColor: t.ok },
+  sheetBtnText: { color: '#000000', fontSize: 15, fontWeight: '800' },
+  sheetCancel: { alignItems: 'center', paddingVertical: space.sm, marginTop: space.xs },
+  sheetCancelText: { color: t.textDim, fontSize: 13, fontWeight: '600' },
 });

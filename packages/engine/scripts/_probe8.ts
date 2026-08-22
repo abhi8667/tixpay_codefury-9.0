@@ -1,0 +1,14 @@
+import { useAppStore } from '../../../apps/mobile/store/useAppStore';
+const s = () => useAppStore.getState();
+s().loadSampleStatement();
+const c = s()._pipelineCache!;
+console.log('stats', JSON.stringify(c.stats));
+const tails = new Map<string, number>();
+for (const t of c.txns) tails.set(t.accountTail ?? 'none', (tails.get(t.accountTail ?? 'none') ?? 0) + 1);
+console.log('tails', [...tails]);
+const cr = c.ledger.txns.filter(t=>t.direction==='CREDIT');
+const dr = c.ledger.txns.filter(t=>t.direction==='DEBIT');
+console.log('scoped credits', cr.length, cr.reduce((a,b)=>a+b.amount,0));
+console.log('scoped debits', dr.length, dr.reduce((a,b)=>a+b.amount,0));
+const acr = c.txns.filter(t=>t.direction==='CREDIT');
+console.log('all credits', acr.length, acr.reduce((a,b)=>a+b.amount,0));

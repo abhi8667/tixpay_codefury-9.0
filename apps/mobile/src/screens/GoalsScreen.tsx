@@ -1,25 +1,31 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TextInput } from 'react-native';
 import { t, typography, space, radius } from '../theme';
 import { Rupee } from '../components/Rupee';
-import { useAppStore } from '../../store/useAppStore';
+import { ScreenHeader } from '../components/ScreenHeader';
+import { FadeIn, PressableScale, ProgressBar, money } from '../components/motion';
+import { useAppStore, type TransferResult } from '../../store/useAppStore';
 import { formatIstDate } from '@tixpay/engine';
 
 interface GoalsScreenProps {
   onBack?: () => void;
 }
 
-const STEP = 500;
+const QUICK_AMOUNTS = [500, 1000, 2500, 5000];
 const PRESET_TARGETS = [25000, 50000, 100000, 200000];
+/** Target-date options, in months from now. */
+const HORIZONS = [6, 12, 24, 36];
 
 /**
  * Goal-based savings, built on the Keeper jar the guard already funds sweeps
  * from. The number that used to be a fixed KEEPER_GOAL is now something the
- * user names and sets a date for, and the "are you on track" answer comes
- * from the account's actual trailing surplus — not an assumed savings rate.
+ * user names, sets a target date for, and moves any amount into — and the "are
+ * you on track" answer comes from the account's actual trailing surplus, not an
+ * assumed savings rate.
  */
 export const GoalsScreen: React.FC<GoalsScreenProps> = ({ onBack }) => {
   const keeperBalance = useAppStore((s) => s.keeperBalance);
+  const keeperTxns = useAppStore((s) => s.keeperTxns);
   const goalLabel = useAppStore((s) => s.goalLabel);
   const goalTargetAmount = useAppStore((s) => s.goalTargetAmount);
   const goalTargetDate = useAppStore((s) => s.goalTargetDate);
@@ -28,63 +34,85 @@ export const GoalsScreen: React.FC<GoalsScreenProps> = ({ onBack }) => {
   const addToKeeper = useAppStore((s) => s.addToKeeper);
   const withdrawFromKeeper = useAppStore((s) => s.withdrawFromKeeper);
   const ledger = useAppStore((s) => s.ledger());
+  const now = useAppStore((s) => s.now);
   const pipelineCache = useAppStore((s) => s._pipelineCache);
 
   const [editing, setEditing] = useState(false);
   const [labelDraft, setLabelDraft] = useState(goalLabel);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [amountStr, setAmountStr] = useState('500');
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const status = useMemo(() => goalStatus(), [goalStatus, pipelineCache, keeperBalance, goalTargetAmount, goalTargetDate]);
+  /**
+   * One timer, cleared on every new flash and on unmount.
+   *
+   * The previous version called `setTimeout` per flash with no handle. Tapping
+   * twice inside the window meant the FIRST timer cleared the SECOND message,
+   * so the confirmation for a move that had succeeded vanished after a few
+   * hundred milliseconds and the screen looked like it had rejected the tap.
+   */
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flash = (result: TransferResult) => {
+    if (timer.current) clearTimeout(timer.current);
+    setNotice({ ok: result.ok, text: result.message });
+    timer.current = setTimeout(() => setNotice(null), 2600);
+  };
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  const status = useMemo(
+    () => goalStatus(),
+    [goalStatus, pipelineCache, keeperBalance, goalTargetAmount, goalTargetDate],
+  );
 
   const accountBalance = ledger?.currentBalance ?? 0;
-  const pct = Math.round((status?.pct ?? 0) * 100);
+  const pct = Math.min(1, Math.max(0, status?.pct ?? 0));
+  const amountVal = parseFloat(amountStr) || 0;
 
-  const flash = (msg: string) => {
-    setNotice(msg);
-    setTimeout(() => setNotice(null), 2200);
-  };
-
-  const handleAdd = () => {
-    if (accountBalance < STEP) {
-      flash('Not enough in your account to move ₹500 across.');
-      return;
-    }
-    addToKeeper(STEP);
-    flash(`₹${STEP} moved into your goal.`);
-  };
-
-  const handleWithdraw = () => {
-    if (keeperBalance < STEP) {
-      flash('This goal does not hold ₹500 yet.');
-      return;
-    }
-    withdrawFromKeeper(STEP);
-    flash(`₹${STEP} moved back to your account.`);
-  };
+  const handleAdd = () => flash(addToKeeper(amountVal));
+  const handleWithdraw = () => flash(withdrawFromKeeper(amountVal));
 
   const saveLabel = () => {
     setGoal(labelDraft.trim() || 'Savings goal', goalTargetAmount, goalTargetDate);
     setEditing(false);
   };
 
+  const setHorizonMonths = (months: number) => {
+    const target = new Date(now.getTime());
+    target.setUTCMonth(target.getUTCMonth() + months);
+    setGoal(goalLabel, goalTargetAmount, target);
+  };
+
+  const monthsToTarget = (months: number): boolean => {
+    if (!goalTargetDate) return false;
+    const candidate = new Date(now.getTime());
+    candidate.setUTCMonth(candidate.getUTCMonth() + months);
+    return Math.abs(candidate.getTime() - goalTargetDate.getTime()) < 36e5 * 24;
+  };
+
+  const history = keeperTxns.slice(0, 6);
+
   return (
     <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Text style={styles.backText}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Goals</Text>
-        <View style={styles.backBtn} />
-      </View>
+      <ScreenHeader title="Goals" onBack={onBack} subtitle={goalLabel} />
 
       {notice && (
-        <View style={styles.notice}>
-          <Text style={styles.noticeText}>{notice}</Text>
-        </View>
+        <FadeIn offset={-6} style={[styles.notice, notice.ok ? styles.noticeOk : styles.noticeBad]}>
+          <Text style={[styles.noticeText, notice.ok ? styles.noticeTextOk : styles.noticeTextBad]}>
+            {notice.text}
+          </Text>
+        </FadeIn>
       )}
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.jarSection}>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        <FadeIn style={styles.jarSection}>
           <View style={styles.jarGlowContainer}>
             <Text style={styles.jarEmojiLarge}>🎯</Text>
           </View>
@@ -98,95 +126,201 @@ export const GoalsScreen: React.FC<GoalsScreenProps> = ({ onBack }) => {
                 placeholder="Goal name"
                 placeholderTextColor={t.textFaint}
                 autoFocus
+                onSubmitEditing={saveLabel}
               />
-              <TouchableOpacity onPress={saveLabel} style={styles.saveBtn}>
+              <PressableScale onPress={saveLabel} style={styles.saveBtn}>
                 <Text style={styles.saveBtnText}>Save</Text>
-              </TouchableOpacity>
+              </PressableScale>
             </View>
           ) : (
-            <TouchableOpacity onPress={() => setEditing(true)}>
+            <PressableScale onPress={() => setEditing(true)} haptic={false}>
               <Text style={styles.goalLabel}>{goalLabel} ✎</Text>
-            </TouchableOpacity>
+            </PressableScale>
           )}
 
-          <Rupee amount={goalTargetAmount} style={typography.display} showPrefix={false} />
+          <Rupee amount={keeperBalance} style={typography.display} showPrefix={false} animate />
+          <Text style={styles.ofTarget}>of {money(goalTargetAmount)}</Text>
 
-          <View style={styles.progressRow}>
-            <View style={styles.track}>
-              <View style={[styles.fill, { width: `${Math.min(pct, 100)}%` }]} />
-            </View>
-            <Text style={styles.pctText}>{pct}% of goal</Text>
+          <ProgressBar progress={pct} style={styles.progress} />
+          <Text style={styles.pctText}>{Math.round(pct * 100)}% of goal</Text>
+        </FadeIn>
+
+        {/* ── Move money ───────────────────────────────────────────────── */}
+        <FadeIn delay={60} style={styles.card}>
+          <Text style={styles.cardTitle}>Move money</Text>
+          <View style={styles.amountRow}>
+            <Text style={styles.amountSymbol}>₹</Text>
+            <TextInput
+              value={amountStr}
+              onChangeText={(v) => setAmountStr(v.replace(/[^0-9.]/g, ''))}
+              keyboardType="numeric"
+              style={styles.amountInput}
+              placeholder="0"
+              placeholderTextColor={t.textFaint}
+            />
           </View>
-        </View>
 
-        <View style={styles.targetRow}>
-          {PRESET_TARGETS.map((amt) => (
-            <TouchableOpacity
-              key={amt}
-              style={[styles.targetPill, goalTargetAmount === amt && styles.targetPillActive]}
-              onPress={() => setGoal(goalLabel, amt, goalTargetDate)}
-            >
-              <Text style={[styles.targetPillText, goalTargetAmount === amt && styles.targetPillTextActive]}>
-                ₹{(amt / 1000).toFixed(0)}k
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <View style={styles.statRow}>
-          <View style={styles.statBox}>
-            <Text style={styles.statLabel}>Saved</Text>
-            <Rupee amount={keeperBalance} style={styles.statVal} showPrefix={false} />
-          </View>
-          <View style={styles.statBox}>
-            <Text style={styles.statLabel}>Left to goal</Text>
-            <Rupee amount={Math.max(0, goalTargetAmount - keeperBalance)} style={styles.statVal} showPrefix={false} />
-          </View>
-        </View>
-
-        {status && (
-          <View style={[styles.projectionCard, status.onTrack ? styles.onTrackCard : styles.offTrackCard]}>
-            <Text style={styles.projectionIcon}>{status.onTrack ? '✓' : '⚠️'}</Text>
-            <View style={styles.projectionInfo}>
-              <Text style={[styles.projectionTitle, status.onTrack ? styles.onTrackText : styles.offTrackText]}>
-                {status.onTrack ? "You're on track" : 'Off track at your current savings rate'}
-              </Text>
-              <Text style={styles.projectionSub}>
-                {status.avgMonthlySurplus > 0
-                  ? `Saving ~₹${Math.round(status.avgMonthlySurplus).toLocaleString('en-IN')}/mo from your account`
-                  : 'No positive monthly surplus detected in your statement'}
-              </Text>
-              {status.projectedCompletionDate && (
-                <Text style={styles.projectionSub}>
-                  Projected to hit goal by {formatIstDate(status.projectedCompletionDate, true)}
+          <View style={styles.quickRow}>
+            {QUICK_AMOUNTS.map((amt) => (
+              <PressableScale
+                key={amt}
+                style={[styles.quickChip, amountStr === String(amt) && styles.quickChipActive]}
+                onPress={() => setAmountStr(String(amt))}
+              >
+                <Text
+                  style={[
+                    styles.quickChipText,
+                    amountStr === String(amt) && styles.quickChipTextActive,
+                  ]}
+                >
+                  {money(amt)}
                 </Text>
-              )}
-            </View>
+              </PressableScale>
+            ))}
           </View>
+
+          <View style={styles.ctaRow}>
+            <PressableScale
+              style={[styles.addMoneyBtn, amountVal > accountBalance && styles.btnDisabled]}
+              onPress={handleAdd}
+              disabled={amountVal <= 0}
+            >
+              <Text style={styles.addMoneyText}>Add to goal</Text>
+            </PressableScale>
+            <PressableScale
+              style={[styles.withdrawBtn, keeperBalance < amountVal && styles.btnDisabled]}
+              onPress={handleWithdraw}
+              disabled={amountVal <= 0}
+            >
+              <Text style={styles.withdrawText}>Take out</Text>
+            </PressableScale>
+          </View>
+
+          <Text style={styles.availableNote}>
+            Account balance {money(accountBalance)} · goal holds {money(keeperBalance)}
+          </Text>
+        </FadeIn>
+
+        {/* ── Target ───────────────────────────────────────────────────── */}
+        <FadeIn delay={110} style={styles.card}>
+          <Text style={styles.cardTitle}>Target</Text>
+          <View style={styles.pillRow}>
+            {PRESET_TARGETS.map((amt) => (
+              <PressableScale
+                key={amt}
+                style={[styles.pill, goalTargetAmount === amt && styles.pillActive]}
+                onPress={() => setGoal(goalLabel, amt, goalTargetDate)}
+              >
+                <Text
+                  style={[styles.pillText, goalTargetAmount === amt && styles.pillTextActive]}
+                >
+                  ₹{(amt / 1000).toFixed(0)}k
+                </Text>
+              </PressableScale>
+            ))}
+          </View>
+
+          <Text style={[styles.cardTitle, styles.cardTitleSpaced]}>By when</Text>
+          <View style={styles.pillRow}>
+            {HORIZONS.map((months) => (
+              <PressableScale
+                key={months}
+                style={[styles.pill, monthsToTarget(months) && styles.pillActive]}
+                onPress={() => setHorizonMonths(months)}
+              >
+                <Text style={[styles.pillText, monthsToTarget(months) && styles.pillTextActive]}>
+                  {months}m
+                </Text>
+              </PressableScale>
+            ))}
+            <PressableScale
+              style={[styles.pill, goalTargetDate === null && styles.pillActive]}
+              onPress={() => setGoal(goalLabel, goalTargetAmount, null)}
+            >
+              <Text style={[styles.pillText, goalTargetDate === null && styles.pillTextActive]}>
+                No date
+              </Text>
+            </PressableScale>
+          </View>
+          {goalTargetDate ? (
+            <Text style={styles.availableNote}>
+              Aiming for {formatIstDate(goalTargetDate, true)}
+            </Text>
+          ) : null}
+        </FadeIn>
+
+        {/* ── Are you on track ─────────────────────────────────────────── */}
+        {status && (
+          <FadeIn delay={160}>
+            <View
+              style={[
+                styles.projectionCard,
+                status.onTrack ? styles.onTrackCard : styles.offTrackCard,
+              ]}
+            >
+              <Text style={styles.projectionIcon}>{status.onTrack ? '✓' : '⚠️'}</Text>
+              <View style={styles.projectionInfo}>
+                <Text
+                  style={[
+                    styles.projectionTitle,
+                    status.onTrack ? styles.onTrackText : styles.offTrackText,
+                  ]}
+                >
+                  {status.onTrack ? "You're on track" : 'Off track at your current savings rate'}
+                </Text>
+                <Text style={styles.projectionSub}>
+                  {status.avgMonthlySurplus > 0
+                    ? `Saving about ${money(status.avgMonthlySurplus)} a month, measured from your statement`
+                    : 'No positive monthly surplus detected in your statement'}
+                </Text>
+                {status.projectedCompletionDate && (
+                  <Text style={styles.projectionSub}>
+                    On this rate you reach {money(goalTargetAmount)} by{' '}
+                    {formatIstDate(status.projectedCompletionDate, true)}
+                  </Text>
+                )}
+                {status.suggestedMonthlyContribution ? (
+                  <Text style={styles.projectionSub}>
+                    Hitting your date needs {money(status.suggestedMonthlyContribution)} a month.
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          </FadeIn>
         )}
 
-        <View style={styles.ctaRow}>
-          <TouchableOpacity style={styles.addMoneyBtn} onPress={handleAdd} activeOpacity={0.8}>
-            <Text style={styles.addMoneyText}>+ Add ₹{STEP}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.withdrawBtn, keeperBalance < STEP && styles.btnDisabled]}
-            onPress={handleWithdraw}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.withdrawText}>Withdraw ₹{STEP}</Text>
-          </TouchableOpacity>
-        </View>
+        {/* ── Jar history ──────────────────────────────────────────────── */}
+        <FadeIn delay={200} style={styles.card}>
+          <Text style={styles.cardTitle}>Activity</Text>
+          {history.map((entry) => (
+            <View key={entry.id} style={styles.historyRow}>
+              <View style={styles.historyMeta}>
+                <Text style={styles.historyLabel}>{entry.label}</Text>
+                <Text style={styles.historyDate}>{formatIstDate(entry.date)}</Text>
+              </View>
+              <Text
+                style={[
+                  styles.historyAmount,
+                  entry.amount < 0 ? styles.historyOut : styles.historyIn,
+                ]}
+              >
+                {entry.amount < 0 ? '−' : '+'}
+                {money(entry.amount)}
+              </Text>
+            </View>
+          ))}
+        </FadeIn>
 
-        <View style={styles.bannerCard}>
+        <FadeIn delay={240} style={styles.bannerCard}>
           <Text style={styles.bannerIcon}>🛟</Text>
           <View style={styles.bannerInfo}>
             <Text style={styles.bannerTitle}>Also your bounce buffer</Text>
             <Text style={styles.bannerSub}>
-              This is the same jar Keeper sweeps draw from — funding your goal doubles as your safety net.
+              This is the same jar Keeper sweeps draw from — funding your goal doubles as your
+              safety net.
             </Text>
           </View>
-        </View>
+        </FadeIn>
       </ScrollView>
     </View>
   );
@@ -194,42 +328,34 @@ export const GoalsScreen: React.FC<GoalsScreenProps> = ({ onBack }) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: t.bg },
-  headerRow: {
-    height: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: space.md,
-    borderBottomWidth: 1,
-    borderBottomColor: t.border,
-  },
-  backBtn: { width: 32 },
-  backText: { color: t.text, fontSize: 22 },
-  headerTitle: { ...typography.title, fontSize: 18 },
   notice: {
-    backgroundColor: t.surfaceHi,
     borderBottomWidth: 1,
-    borderBottomColor: t.border,
     paddingVertical: space.sm,
     paddingHorizontal: space.md,
   },
-  noticeText: { color: t.warn, fontSize: 13, fontWeight: '600' },
+  noticeOk: { backgroundColor: '#0A261C', borderBottomColor: t.ok },
+  noticeBad: { backgroundColor: '#261214', borderBottomColor: t.danger },
+  noticeText: { fontSize: 13, fontWeight: '600' },
+  noticeTextOk: { color: t.ok },
+  noticeTextBad: { color: t.danger },
   content: { flex: 1 },
-  scrollContent: { padding: space.md, paddingBottom: 40 },
-  jarSection: { alignItems: 'center', marginTop: space.md },
+  scrollContent: { padding: space.md, paddingBottom: 48 },
+
+  jarSection: { alignItems: 'center', marginTop: space.sm },
   jarGlowContainer: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
+    width: 96,
+    height: 96,
+    borderRadius: 48,
     backgroundColor: t.surface,
     borderWidth: 1,
     borderColor: t.warn,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: space.md,
+    marginBottom: space.sm,
   },
-  jarEmojiLarge: { fontSize: 52 },
-  goalLabel: { ...typography.caption, marginBottom: 2, fontSize: 14 },
+  jarEmojiLarge: { fontSize: 44 },
+  goalLabel: { ...typography.caption, marginBottom: 4, fontSize: 14 },
+  ofTarget: { color: t.textDim, fontSize: 13, marginTop: 2 },
   editRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginBottom: 4 },
   labelInput: {
     color: t.text,
@@ -237,43 +363,102 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: t.warn,
     paddingVertical: 2,
-    minWidth: 140,
+    minWidth: 150,
   },
-  saveBtn: { paddingHorizontal: space.sm, paddingVertical: 4, backgroundColor: t.warn, borderRadius: radius.sm },
+  saveBtn: {
+    paddingHorizontal: space.sm,
+    paddingVertical: 4,
+    backgroundColor: t.warn,
+    borderRadius: radius.sm,
+  },
   saveBtnText: { color: '#000', fontSize: 12, fontWeight: '700' },
-  progressRow: { width: '100%', marginTop: space.md, alignItems: 'center' },
-  track: {
-    width: '100%',
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: t.surfaceHi,
-    overflow: 'hidden',
-  },
-  fill: { height: 8, borderRadius: 4, backgroundColor: t.warn },
+  progress: { width: '100%', marginTop: space.md },
   pctText: { ...typography.caption, marginTop: space.xs },
-  targetRow: { flexDirection: 'row', gap: space.sm, marginTop: space.md, justifyContent: 'center' },
-  targetPill: {
-    paddingHorizontal: space.md,
-    paddingVertical: 6,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: t.border,
-    backgroundColor: t.surface,
-  },
-  targetPillActive: { borderColor: t.warn, backgroundColor: '#262010' },
-  targetPillText: { color: t.textDim, fontSize: 12, fontWeight: '600' },
-  targetPillTextActive: { color: t.warn, fontWeight: '700' },
-  statRow: { flexDirection: 'row', gap: space.sm, marginTop: space.lg },
-  statBox: {
-    flex: 1,
+
+  card: {
     backgroundColor: t.surface,
     borderColor: t.border,
     borderWidth: 1,
     borderRadius: radius.md,
     padding: space.md,
+    marginTop: space.md,
   },
-  statLabel: { ...typography.caption, marginBottom: 4 },
-  statVal: { color: t.text, fontSize: 20, fontWeight: '700' },
+  cardTitle: {
+    color: t.textDim,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: space.sm,
+  },
+  cardTitleSpaced: { marginTop: space.md },
+
+  amountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  amountSymbol: { color: t.textDim, fontSize: 24, fontWeight: '700', marginRight: 2 },
+  amountInput: {
+    color: t.text,
+    fontSize: 30,
+    fontWeight: '800',
+    minWidth: 90,
+    textAlign: 'center',
+    padding: 0,
+    fontVariant: ['tabular-nums'],
+  },
+  quickRow: {
+    flexDirection: 'row',
+    gap: space.xs,
+    justifyContent: 'center',
+    marginTop: space.sm,
+  },
+  quickChip: {
+    backgroundColor: t.surfaceHi,
+    borderColor: t.border,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: space.sm,
+    paddingVertical: 5,
+  },
+  quickChipActive: { backgroundColor: t.warn, borderColor: t.warn },
+  quickChipText: { color: t.textDim, fontSize: 12, fontWeight: '600' },
+  quickChipTextActive: { color: '#000000', fontWeight: '800' },
+
+  ctaRow: { flexDirection: 'row', gap: space.sm, marginTop: space.md },
+  addMoneyBtn: {
+    flex: 1,
+    height: 46,
+    borderRadius: radius.md,
+    backgroundColor: t.warn,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addMoneyText: { color: '#000000', fontSize: 15, fontWeight: '700' },
+  withdrawBtn: {
+    flex: 1,
+    height: 46,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: t.border,
+    backgroundColor: t.surfaceHi,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  withdrawText: { color: t.text, fontSize: 15, fontWeight: '700' },
+  btnDisabled: { opacity: 0.45 },
+  availableNote: { color: t.textFaint, fontSize: 11, marginTop: space.sm, textAlign: 'center' },
+
+  pillRow: { flexDirection: 'row', gap: space.xs, flexWrap: 'wrap' },
+  pill: {
+    paddingHorizontal: space.md,
+    paddingVertical: 6,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: t.border,
+    backgroundColor: t.surfaceHi,
+  },
+  pillActive: { borderColor: t.warn, backgroundColor: '#262010' },
+  pillText: { color: t.textDim, fontSize: 12, fontWeight: '600' },
+  pillTextActive: { color: t.warn, fontWeight: '700' },
+
   projectionCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -289,29 +474,22 @@ const styles = StyleSheet.create({
   projectionTitle: { fontSize: 14, fontWeight: '700', marginBottom: 2 },
   onTrackText: { color: t.ok },
   offTrackText: { color: t.warn },
-  projectionSub: { color: t.textDim, fontSize: 12, marginTop: 2 },
-  ctaRow: { flexDirection: 'row', gap: space.sm, marginTop: space.md },
-  addMoneyBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: radius.md,
-    backgroundColor: t.warn,
+  projectionSub: { color: t.textDim, fontSize: 12, marginTop: 2, lineHeight: 17 },
+
+  historyRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: t.border,
   },
-  addMoneyText: { color: '#000000', fontSize: 15, fontWeight: '700' },
-  withdrawBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: t.border,
-    backgroundColor: t.surfaceHi,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnDisabled: { opacity: 0.45 },
-  withdrawText: { color: t.text, fontSize: 15, fontWeight: '700' },
+  historyMeta: { flex: 1 },
+  historyLabel: { color: t.text, fontSize: 13, fontWeight: '600' },
+  historyDate: { color: t.textFaint, fontSize: 11, marginTop: 1 },
+  historyAmount: { fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  historyIn: { color: t.ok },
+  historyOut: { color: t.textDim },
+
   bannerCard: {
     flexDirection: 'row',
     alignItems: 'center',

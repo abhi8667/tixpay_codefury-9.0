@@ -23,12 +23,22 @@ import {
   computeAvgMonthlySurplus,
   projectGoal,
   checkSipAffordability,
+  auditSubscriptions,
+  computeMoneyMap,
+  computeHealthVerdict,
+  computeRiskProfile,
+  normalizeVpa,
+  round2,
   type PipelineResult,
   type StatementMeta,
   type SpendBreakdown,
   type GoalProjection,
   type SipCheckResult,
   type Cadence,
+  type SubscriptionAudit,
+  type MoneyMap,
+  type HealthVerdict,
+  type RiskProfileResult,
 } from '@tixpay/engine';
 import { DEMO_STATEMENT_CSV } from '../src/data/demoStatement';
 import { setRedactionEnabled } from '../src/utils/redaction';
@@ -60,6 +70,30 @@ export interface KeeperEntry {
 
 export const KEEPER_GOAL = 50000;
 
+/** A counterparty the account has paid before. */
+export interface Payee {
+  /** Grouping key — the statement's payment address. */
+  id: string;
+  name: string;
+  vpa: string;
+  lastPaid: Date;
+  lastAmount: number;
+  timesPaid: number;
+  totalPaid: number;
+}
+
+/**
+ * The outcome of moving money between the account and the jar.
+ *
+ * A void action forced the screen to re-derive whether the move had worked,
+ * which it did with its own copy of the balance check — so the two could
+ * disagree, and on a repeat tap they did.
+ */
+export interface TransferResult {
+  ok: boolean;
+  message: string;
+}
+
 export interface AppState {
   // ─── Raw state ─────────────────────────────────────────────────────────
   /** Transactions read from the imported statement. The only real input. */
@@ -75,6 +109,15 @@ export interface AppState {
   redactionOn: boolean;
   activeScenario: ScenarioPreset;
   cardsList: Card[];
+  /**
+   * How far the projection looks ahead. The guard, the curve and every
+   * intervention are recomputed against this, so it is raw state rather than a
+   * view-level filter — a 90-day horizon that only restyled a 30-day curve
+   * would be a lie told in the axis labels.
+   */
+  horizonDays: number;
+  /** Risk questionnaire: question id → the chosen option's score (0–4). */
+  riskAnswers: Record<string, number>;
 
   // ─── Keeper (the sweep reserve) ────────────────────────────────────────
   keeperBalance: number;
@@ -87,6 +130,16 @@ export interface AppState {
 
   // ─── Cached pipeline result ────────────────────────────────────────────
   _pipelineCache: PipelineResult | null;
+  /**
+   * Monotonic counter behind every simulated transaction id.
+   *
+   * `now` is frozen during a session — that is the whole point of the World
+   * Clock — so an id built from `now` and the amount collided the moment the
+   * same action ran twice. Two ₹500 top-ups produced two transactions with one
+   * id, which React then treated as one row. Sequence numbers are the fix, and
+   * they keep ids deterministic within a run.
+   */
+  _simSeq: number;
 
   // ─── Selectors ─────────────────────────────────────────────────────────
   transactions: () => Transaction[];
@@ -118,6 +171,22 @@ export interface AppState {
   goalStatus: () => GoalProjection | null;
   /** "Can I afford this SIP?" — evaluated against the actual projected curve. */
   checkSip: (amount: number, cadence: Cadence, dayOfMonth: number) => SipCheckResult | null;
+  /** Everything charging this account on repeat, priced per year. */
+  subscriptions: () => SubscriptionAudit | null;
+  /** Commitments, run-rates and ratios consolidated into one picture. */
+  moneyMap: () => MoneyMap | null;
+  /** The one-line verdict the Money Map opens with. */
+  healthVerdict: () => HealthVerdict | null;
+  /** Attitude vs capacity, with the lower one binding. */
+  riskProfile: () => RiskProfileResult | null;
+  /**
+   * Counterparties this account has actually paid, most recent first.
+   *
+   * The Pay screen used to open on one hardcoded merchant. These are the real
+   * payees from the imported statement, which is both more useful and the only
+   * version that is true.
+   */
+  payees: (limit?: number) => Payee[];
 
   // ─── Actions ───────────────────────────────────────────────────────────
   importStatement: (csv: string, sourceName: string, isSample?: boolean) => boolean;
@@ -133,9 +202,13 @@ export interface AppState {
   /** Stage tool: append an arbitrary simulated movement and re-project. */
   injectSimulated: (direction: 'DEBIT' | 'CREDIT', amount: number, label: string) => void;
   applySweep: (amount: number) => void;
-  addToKeeper: (amount: number) => void;
-  withdrawFromKeeper: (amount: number) => void;
+  /** Returns why it refused, so the screen can say it rather than guess. */
+  addToKeeper: (amount: number) => TransferResult;
+  withdrawFromKeeper: (amount: number) => TransferResult;
   setGoal: (label: string, targetAmount: number, targetDate: Date | null) => void;
+  setHorizon: (days: number) => void;
+  setRiskAnswer: (questionId: string, score: number) => void;
+  resetRiskAnswers: () => void;
   recompute: () => void;
 }
 
@@ -184,6 +257,26 @@ const NO_MANDATES: Mandate[] = [];
 const NO_CURVE: BalanceCurve = [];
 const NO_SHORTFALLS: Shortfall[] = [];
 const NO_INTERVENTIONS: Intervention[] = [];
+const NO_PAYEES: Payee[] = [];
+
+/**
+ * A readable name for a counterparty the statement did not name.
+ *
+ * ICICI-style narrations carry the payee's name in their own field and land in
+ * `merchantName`. HDFC-style ones do not — 'UPI-BIGBASKET-bigbasket.payu@
+ * hdfcbank-HDFC-4123' states the merchant only inside the address. Rendering
+ * the raw VPA there gave a payee list of 'bigbasket.payu@hdfcbank', which is
+ * technically the truth and useless to read.
+ *
+ * `normalizeVpa` already strips the gateway handle and order id, so this is
+ * just casing on top of it.
+ */
+function prettyVpa(vpa: string): string {
+  const handle = normalizeVpa(vpa).split('@')[0] ?? vpa;
+  const cleaned = handle.replace(/[._-]+/g, ' ').trim();
+  if (!cleaned) return vpa;
+  return cleaned.replace(/\b[a-z]/g, (c) => c.toUpperCase());
+}
 
 /** Opening jar history. Labelled as the starting reserve, not invented activity. */
 const KEEPER_SEED: KeeperEntry[] = [
@@ -208,11 +301,12 @@ function computePipeline(
   now: Date,
   pausedMandateIds: string[],
   mandateShifts: Record<string, number>,
+  days: number,
 ): PipelineResult | null {
   if (txns.length === 0) return null;
 
   try {
-    const result = runPipeline(txns, now);
+    const result = runPipeline(txns, now, { days });
     const shiftIds = Object.keys(mandateShifts);
 
     const effective: Mandate[] = result.mandates.map((m) => {
@@ -235,11 +329,11 @@ function computePipeline(
     if (pausedMandateIds.length > 0 || shiftIds.length > 0) {
       const curve =
         pausedMandateIds.length > 0
-          ? projectWithPaused(result.ledger, effective, result.income, now, pausedMandateIds, 30)
-          : projectBalance(result.ledger, effective, result.income, now, 30);
+          ? projectWithPaused(result.ledger, effective, result.income, now, pausedMandateIds, days)
+          : projectBalance(result.ledger, effective, result.income, now, days);
       const shortfalls = findShortfalls(curve, effective);
       const interventions = shortfalls.flatMap((s) =>
-        proposeInterventions(s, effective, result.ledger, result.income, now, { days: 30 }),
+        proposeInterventions(s, effective, result.ledger, result.income, now, { days }),
       );
       return { ...result, mandates: effective, curve, shortfalls, interventions };
     }
@@ -258,17 +352,25 @@ function simulatedTxn(
   label: string,
   now: Date,
   accountTail: string | undefined,
+  seq: number,
   vpa?: string,
 ): Transaction {
   const txn: Transaction = {
     // Deterministic id: the engine is pure, and a demo that shows a different
     // reference on the second run invites a question with no good answer.
-    id: `sim_${direction}_${now.getTime()}_${Math.round(amount * 100)}`,
+    //
+    // `seq` is what makes it UNIQUE as well as deterministic. `now` is frozen
+    // by the World Clock, so an id of direction + now + amount was identical
+    // for every repeat of the same action — a second ₹500 top-up produced a
+    // transaction React could not tell apart from the first.
+    id: `sim_${direction}_${now.getTime()}_${Math.round(amount * 100)}_${seq}`,
     direction,
     amount,
     bank: 'HDFC',
     // One minute past `now` so it sorts after every statement row on the day.
-    timestamp: new Date(now.getTime() + 60 * 1000),
+    // One minute past `now`, then one second per movement, so repeat actions
+    // keep the order they happened in when the ledger walks them.
+    timestamp: new Date(now.getTime() + 60 * 1000 + seq * 1000),
     isFailure: false,
     merchantHint: label,
     source: 'INTENT',
@@ -295,10 +397,39 @@ export const useAppStore = create<AppState>((set, get) => {
     const now = partial.now ?? s.now;
     const paused = partial.pausedMandateIds ?? s.pausedMandateIds;
     const shifts = partial.mandateShifts ?? s.mandateShifts;
+    const days = partial.horizonDays ?? s.horizonDays;
     set({
       ...partial,
-      _pipelineCache: computePipeline([...importedTxns, ...simulatedTxns], now, paused, shifts),
+      _pipelineCache: computePipeline(
+        [...importedTxns, ...simulatedTxns],
+        now,
+        paused,
+        shifts,
+        days,
+      ),
     } as Partial<AppState>);
+  };
+
+  /**
+   * Mint the next simulated transaction, advancing the sequence.
+   *
+   * Every caller went through `simulatedTxn` directly and had to remember to
+   * bump the counter; one that forgot reintroduced the collision. Handing back
+   * both the transaction and the next sequence makes that impossible to skip.
+   */
+  const nextSim = (
+    direction: 'DEBIT' | 'CREDIT',
+    amount: number,
+    label: string,
+    vpa?: string,
+  ): { txn: Transaction; seq: number } => {
+    const st = get();
+    const seq = st._simSeq + 1;
+    const tail = st._pipelineCache?.ledger.accountTail;
+    return {
+      txn: simulatedTxn(direction, amount, label, st.now, tail, seq, vpa),
+      seq,
+    };
   };
 
   return {
@@ -312,12 +443,15 @@ export const useAppStore = create<AppState>((set, get) => {
     redactionOn: true,
     activeScenario: 'tight',
     cardsList: mockCards,
+    horizonDays: 30,
+    riskAnswers: {},
     keeperBalance: KEEPER_OPENING,
     keeperTxns: KEEPER_SEED,
     goalLabel: 'Emergency fund',
     goalTargetAmount: KEEPER_GOAL,
     goalTargetDate: null,
     _pipelineCache: null,
+    _simSeq: 0,
 
     // ─── Selectors ───────────────────────────────────────────────────────
     transactions: () => get()._pipelineCache?.txns ?? NO_TXNS,
@@ -433,6 +567,102 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     },
 
+    subscriptions: () => {
+      const s = get();
+      const cache = s._pipelineCache;
+      if (!cache) return null;
+      try {
+        return auditSubscriptions(cache.txns, s.now);
+      } catch (err) {
+        console.warn('[useAppStore] auditSubscriptions failed:', err);
+        return null;
+      }
+    },
+
+    moneyMap: () => {
+      const s = get();
+      const cache = s._pipelineCache;
+      if (!cache) return null;
+      try {
+        return computeMoneyMap(
+          cache.txns,
+          cache.mandates,
+          cache.ledger,
+          cache.income,
+          s.keeperBalance,
+          s.now,
+        );
+      } catch (err) {
+        console.warn('[useAppStore] computeMoneyMap failed:', err);
+        return null;
+      }
+    },
+
+    healthVerdict: () => {
+      const map = get().moneyMap();
+      if (!map) return null;
+      try {
+        return computeHealthVerdict(map);
+      } catch (err) {
+        console.warn('[useAppStore] computeHealthVerdict failed:', err);
+        return null;
+      }
+    },
+
+    riskProfile: () => {
+      const s = get();
+      const map = s.moneyMap();
+      if (!map) return null;
+      try {
+        return computeRiskProfile(s.riskAnswers, map);
+      } catch (err) {
+        console.warn('[useAppStore] computeRiskProfile failed:', err);
+        return null;
+      }
+    },
+
+    /**
+     * Real payees, read off the statement.
+     *
+     * Debits only, and only ones the file gave us an address for: a payee row
+     * we cannot actually address is a dead end at the amount screen. Ranked by
+     * recency rather than value, because the person you paid yesterday is the
+     * one you are most likely to pay again.
+     */
+    payees: (limit = 20) => {
+      const cache = get()._pipelineCache;
+      if (!cache) return NO_PAYEES;
+
+      const byKey = new Map<string, Payee>();
+      for (const t of cache.txns) {
+        if (t.direction !== 'DEBIT' || t.isFailure || !t.vpa) continue;
+        const existing = byKey.get(t.vpa);
+        if (existing) {
+          existing.timesPaid += 1;
+          existing.totalPaid = round2(existing.totalPaid + t.amount);
+          if (t.timestamp.getTime() > existing.lastPaid.getTime()) {
+            existing.lastPaid = t.timestamp;
+            existing.lastAmount = t.amount;
+            if (t.merchantName) existing.name = t.merchantName;
+          }
+        } else {
+          byKey.set(t.vpa, {
+            id: t.vpa,
+            name: t.merchantName ?? prettyVpa(t.vpa),
+            vpa: t.vpa,
+            lastPaid: t.timestamp,
+            lastAmount: t.amount,
+            timesPaid: 1,
+            totalPaid: t.amount,
+          });
+        }
+      }
+
+      return [...byKey.values()]
+        .sort((a, b) => b.lastPaid.getTime() - a.lastPaid.getTime())
+        .slice(0, limit);
+    },
+
     // ─── Actions ─────────────────────────────────────────────────────────
 
     /**
@@ -473,6 +703,13 @@ export const useAppStore = create<AppState>((set, get) => {
       };
       if (parsed.meta.accountTail) summary.accountTail = parsed.meta.accountTail;
 
+      // The jar opens empty on a real file.
+      //
+      // KEEPER_OPENING is ₹12,450 of scaffolding for the bundled demo, and
+      // carrying it onto an imported statement meant the Goals screen greeted a
+      // real user with money they do not have — and the bounce guard offered
+      // sweeps funded by it. Everything else on every screen is derived from
+      // the file; this has to be too.
       rebuild({
         importedTxns: parsed.txns,
         simulatedTxns: [],
@@ -481,8 +718,9 @@ export const useAppStore = create<AppState>((set, get) => {
         now,
         pausedMandateIds: [],
         mandateShifts: {},
-        keeperBalance: KEEPER_OPENING,
-        keeperTxns: KEEPER_SEED,
+        keeperBalance: isSample ? KEEPER_OPENING : 0,
+        keeperTxns: isSample ? KEEPER_SEED : [],
+        _simSeq: 0,
       });
       return true;
     },
@@ -580,25 +818,17 @@ export const useAppStore = create<AppState>((set, get) => {
      */
     executePayment: (amount: number, payeeName?: string, vpa?: string) => {
       const s = get();
-      const tail = s._pipelineCache?.ledger.accountTail;
-      const label = `UPI-${(payeeName ?? 'MERCHANT').toUpperCase()}-${vpa ?? 'merchant@ybl'}`;
-      rebuild({
-        simulatedTxns: [
-          ...s.simulatedTxns,
-          simulatedTxn('DEBIT', amount, label, s.now, tail, vpa),
-        ],
-      });
+      // Written in the structured UPI shape the statement parser reads, so a
+      // simulated payment categorises and groups exactly like a real row does.
+      const label = `UPI/${payeeName ?? 'MERCHANT'}/${vpa ?? 'merchant@ybl'}/UPI/TIXPAY`;
+      const { txn, seq } = nextSim('DEBIT', amount, label, vpa);
+      rebuild({ simulatedTxns: [...s.simulatedTxns, txn], _simSeq: seq });
     },
 
     injectSimulated: (direction: 'DEBIT' | 'CREDIT', amount: number, label: string) => {
       const s = get();
-      const tail = s._pipelineCache?.ledger.accountTail;
-      rebuild({
-        simulatedTxns: [
-          ...s.simulatedTxns,
-          simulatedTxn(direction, amount, label, s.now, tail),
-        ],
-      });
+      const { txn, seq } = nextSim(direction, amount, label);
+      rebuild({ simulatedTxns: [...s.simulatedTxns, txn], _simSeq: seq });
     },
 
     /**
@@ -611,73 +841,87 @@ export const useAppStore = create<AppState>((set, get) => {
     applySweep: (amount: number) => {
       const s = get();
       if (s.keeperBalance < amount) return;
-      const tail = s._pipelineCache?.ledger.accountTail;
+      const { txn, seq } = nextSim('CREDIT', amount, 'TIXPAY KEEPER SWEEP');
       rebuild({
-        simulatedTxns: [
-          ...s.simulatedTxns,
-          simulatedTxn('CREDIT', amount, 'TIXPAY KEEPER SWEEP', s.now, tail),
-        ],
-        keeperBalance: s.keeperBalance - amount,
+        simulatedTxns: [...s.simulatedTxns, txn],
+        _simSeq: seq,
+        keeperBalance: round2(s.keeperBalance - amount),
         keeperTxns: [
-          {
-            id: `keeper_sweep_${s.now.getTime()}_${amount}`,
-            label: 'Swept to account',
-            amount: -amount,
-            date: s.now,
-          },
+          { id: `keeper_sweep_${seq}`, label: 'Swept to account', amount: -amount, date: s.now },
           ...s.keeperTxns,
         ],
       });
     },
 
+    /**
+     * Move money from the account into the jar.
+     *
+     * Both halves move, and both are checked before either does. Refusing with
+     * a reason rather than returning silently is what lets the Goals screen say
+     * 'your account holds ₹320' instead of appearing to do nothing.
+     */
     addToKeeper: (amount: number) => {
       const s = get();
-      const tail = s._pipelineCache?.ledger.accountTail;
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return { ok: false, message: 'Enter an amount above zero.' };
+      }
+      const available = s._pipelineCache?.ledger.currentBalance ?? 0;
+      if (available < amount) {
+        return {
+          ok: false,
+          message: `Your account holds ₹${Math.floor(available).toLocaleString('en-IN')} — not enough to move ₹${amount.toLocaleString('en-IN')}.`,
+        };
+      }
+      const { txn, seq } = nextSim('DEBIT', amount, 'TIXPAY KEEPER TOP-UP');
       rebuild({
-        simulatedTxns: [
-          ...s.simulatedTxns,
-          simulatedTxn('DEBIT', amount, 'TIXPAY KEEPER TOP-UP', s.now, tail),
-        ],
-        keeperBalance: s.keeperBalance + amount,
+        simulatedTxns: [...s.simulatedTxns, txn],
+        _simSeq: seq,
+        keeperBalance: round2(s.keeperBalance + amount),
         keeperTxns: [
-          {
-            id: `keeper_add_${s.now.getTime()}_${amount}`,
-            label: 'Added from account',
-            amount,
-            date: s.now,
-          },
+          { id: `keeper_add_${seq}`, label: 'Added from account', amount, date: s.now },
           ...s.keeperTxns,
         ],
       });
+      return { ok: true, message: `₹${amount.toLocaleString('en-IN')} moved into your goal.` };
     },
 
     withdrawFromKeeper: (amount: number) => {
       const s = get();
-      if (s.keeperBalance < amount) return;
-      const tail = s._pipelineCache?.ledger.accountTail;
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return { ok: false, message: 'Enter an amount above zero.' };
+      }
+      if (s.keeperBalance < amount) {
+        return {
+          ok: false,
+          message: `This goal holds ₹${Math.floor(s.keeperBalance).toLocaleString('en-IN')} — not enough to take out ₹${amount.toLocaleString('en-IN')}.`,
+        };
+      }
       // Same movement as a sweep, different intent — and the jar's history is
       // the one place that distinction is visible, so it gets its own label.
+      const { txn, seq } = nextSim('CREDIT', amount, 'TIXPAY KEEPER WITHDRAWAL');
       rebuild({
-        simulatedTxns: [
-          ...s.simulatedTxns,
-          simulatedTxn('CREDIT', amount, 'TIXPAY KEEPER WITHDRAWAL', s.now, tail),
-        ],
-        keeperBalance: s.keeperBalance - amount,
+        simulatedTxns: [...s.simulatedTxns, txn],
+        _simSeq: seq,
+        keeperBalance: round2(s.keeperBalance - amount),
         keeperTxns: [
-          {
-            id: `keeper_withdraw_${s.now.getTime()}_${amount}`,
-            label: 'Withdrawn to account',
-            amount: -amount,
-            date: s.now,
-          },
+          { id: `keeper_withdraw_${seq}`, label: 'Withdrawn to account', amount: -amount, date: s.now },
           ...s.keeperTxns,
         ],
       });
+      return { ok: true, message: `₹${amount.toLocaleString('en-IN')} moved back to your account.` };
     },
 
     setGoal: (label: string, targetAmount: number, targetDate: Date | null) => {
       set({ goalLabel: label, goalTargetAmount: Math.max(0, targetAmount), goalTargetDate: targetDate });
     },
+
+    setHorizon: (days: number) => rebuild({ horizonDays: Math.max(7, Math.min(365, days)) }),
+
+    setRiskAnswer: (questionId: string, score: number) => {
+      set({ riskAnswers: { ...get().riskAnswers, [questionId]: score } });
+    },
+
+    resetRiskAnswers: () => set({ riskAnswers: {} }),
 
     recompute: () => rebuild({}),
   };

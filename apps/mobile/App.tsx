@@ -12,8 +12,13 @@ import { GoalsScreen } from './src/screens/GoalsScreen';
 import { SimulatorDashboard } from './src/screens/SimulatorDashboard';
 import { SpendInsightsScreen } from './src/screens/SpendInsightsScreen';
 import { SipCheckScreen } from './src/screens/SipCheckScreen';
+import { SubscriptionsScreen } from './src/screens/SubscriptionsScreen';
+import { MoneyMapScreen } from './src/screens/MoneyMapScreen';
+import { RiskProfileScreen } from './src/screens/RiskProfileScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
 import { OnboardingFlow } from './src/screens/onboarding/OnboardingFlow';
+import { AnimatedSplash } from './src/screens/onboarding/AnimatedSplash';
+import { ScreenTransition } from './src/components/motion';
 import { t } from './src/theme';
 import type { Intervention, Shortfall } from '@tixpay/types';
 import { useAppStore } from './store/useAppStore';
@@ -25,6 +30,9 @@ type ScreenMode =
   | 'SIMULATOR'
   | 'SPEND_INSIGHTS'
   | 'SIP_CHECK'
+  | 'SUBSCRIPTIONS'
+  | 'MONEY_MAP'
+  | 'RISK_PROFILE'
   | 'CHAT';
 
 interface PaidPayment {
@@ -34,6 +42,7 @@ interface PaidPayment {
 }
 
 export default function App() {
+  const [booted, setBooted] = useState(false);
   const [screenMode, setScreenMode] = useState<ScreenMode>('INSIGHTS');
   const [activeTab, setActiveTab] = useState<TabName>('Insights');
   const [payVisible, setPayVisible] = useState(false);
@@ -54,13 +63,17 @@ export default function App() {
 
   const closeSheet = useCallback(() => setOpenShortfall(null), []);
 
+  const goHome = useCallback(() => {
+    setScreenMode('INSIGHTS');
+    setActiveTab('Insights');
+  }, []);
+
   const confirmIntervention = useCallback(() => {
     if (pendingIntervention) applyIntervention(pendingIntervention);
     setPendingIntervention(null);
     setOpenShortfall(null);
-    setScreenMode('INSIGHTS');
-    setActiveTab('Insights');
-  }, [pendingIntervention, applyIntervention]);
+    goHome();
+  }, [pendingIntervention, applyIntervention, goHome]);
 
   const goToTab = useCallback((tab: TabName) => {
     setActiveTab(tab);
@@ -73,44 +86,58 @@ export default function App() {
     else if (tab === 'Mandates') setScreenMode('MANDATE_HUB');
   }, []);
 
-  if (!onboardingDone) {
+  // The splash covers the first pipeline run and the bundle warm-up, so it sits
+  // above everything else rather than being a step inside onboarding — a user
+  // who has already imported a statement should still see it on a cold start.
+  if (!booted) {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor={t.bg} />
-        <OnboardingFlow
-          onFinishOnboarding={() => {
-            setScreenMode('INSIGHTS');
-            setActiveTab('Insights');
-          }}
-        />
+        <AnimatedSplash onDone={() => setBooted(true)} />
       </SafeAreaView>
     );
   }
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={t.bg} />
+  if (!onboardingDone) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={t.bg} />
+        <OnboardingFlow onFinishOnboarding={goHome} />
+      </SafeAreaView>
+    );
+  }
 
-      <Header
-        onMenuPress={() => setScreenMode('SIMULATOR')}
-        onNotificationPress={() => setScreenMode('MANDATE_HUB')}
-        onChatPress={() => setScreenMode('CHAT')}
-      />
-
-      <View style={styles.content}>
-        {screenMode === 'SIMULATOR' ? (
-          <SimulatorDashboard onBack={() => setScreenMode('INSIGHTS')} />
-        ) : screenMode === 'MANDATE_HUB' ? (
-          <MandateHubScreen onBack={() => setScreenMode('INSIGHTS')} />
-        ) : screenMode === 'KEEPER' ? (
-          <GoalsScreen onBack={() => setScreenMode('INSIGHTS')} />
-        ) : screenMode === 'SPEND_INSIGHTS' ? (
-          <SpendInsightsScreen onBack={() => setScreenMode('INSIGHTS')} />
-        ) : screenMode === 'SIP_CHECK' ? (
-          <SipCheckScreen onBack={() => setScreenMode('INSIGHTS')} />
-        ) : screenMode === 'CHAT' ? (
-          <ChatScreen onBack={() => setScreenMode('INSIGHTS')} />
-        ) : (
+  const renderScreen = () => {
+    switch (screenMode) {
+      case 'SIMULATOR':
+        return <SimulatorDashboard onBack={goHome} />;
+      case 'MANDATE_HUB':
+        return (
+          <MandateHubScreen
+            onBack={goHome}
+            onOpenSubscriptions={() => setScreenMode('SUBSCRIPTIONS')}
+          />
+        );
+      case 'KEEPER':
+        return <GoalsScreen onBack={goHome} />;
+      case 'SPEND_INSIGHTS':
+        return <SpendInsightsScreen onBack={goHome} />;
+      case 'SIP_CHECK':
+        return <SipCheckScreen onBack={goHome} />;
+      case 'SUBSCRIPTIONS':
+        return <SubscriptionsScreen onBack={goHome} />;
+      case 'MONEY_MAP':
+        return (
+          <MoneyMapScreen onBack={goHome} onOpenGoals={() => setScreenMode('KEEPER')} />
+        );
+      case 'RISK_PROFILE':
+        return (
+          <RiskProfileScreen onBack={goHome} onOpenSipCheck={() => setScreenMode('SIP_CHECK')} />
+        );
+      case 'CHAT':
+        return <ChatScreen onBack={goHome} />;
+      default:
+        return (
           <InsightsScreen
             onTapDip={(shortfall) => setOpenShortfall(shortfall)}
             onOpenKeeper={() => {
@@ -128,8 +155,29 @@ export default function App() {
             onOpenSpendInsights={() => setScreenMode('SPEND_INSIGHTS')}
             onOpenSipCheck={() => setScreenMode('SIP_CHECK')}
             onOpenChat={() => setScreenMode('CHAT')}
+            onOpenSubscriptions={() => setScreenMode('SUBSCRIPTIONS')}
+            onOpenMoneyMap={() => setScreenMode('MONEY_MAP')}
+            onOpenRiskProfile={() => setScreenMode('RISK_PROFILE')}
           />
-        )}
+        );
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={t.bg} />
+
+      <Header
+        onMenuPress={() => setScreenMode('SIMULATOR')}
+        onNotificationPress={() => setScreenMode('MANDATE_HUB')}
+        onChatPress={() => setScreenMode('CHAT')}
+      />
+
+      <View style={styles.content}>
+        {/* Keyed on the screen so every navigation cross-fades rather than
+            snapping. The key is the route, not the component, so re-rendering
+            the same screen with new data does not replay the transition. */}
+        <ScreenTransition routeKey={screenMode}>{renderScreen()}</ScreenTransition>
       </View>
 
       <ShortfallSheet
@@ -150,8 +198,7 @@ export default function App() {
         visible={payVisible}
         onClose={() => {
           setPayVisible(false);
-          setActiveTab('Insights');
-          setScreenMode('INSIGHTS');
+          goHome();
         }}
         onPaySuccess={(payment) => {
           setPayVisible(false);
@@ -166,8 +213,7 @@ export default function App() {
         vpa={paid?.vpa ?? ''}
         onDismiss={() => {
           setPaid(null);
-          setActiveTab('Insights');
-          setScreenMode('INSIGHTS');
+          goHome();
         }}
       />
 

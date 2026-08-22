@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView } from 'react-native';
 import { t, space, radius } from '../theme';
 import { Rupee } from '../components/Rupee';
+import { FadeIn, PressableScale, EmptyState } from '../components/motion';
 import { useAppStore } from '../../store/useAppStore';
 import type { Intervention, Shortfall } from '@tixpay/types';
 import { formatIstDate } from '@tixpay/engine';
@@ -37,15 +38,38 @@ export const ShortfallSheet: React.FC<ShortfallSheetProps> = ({
   const canFundSweep = useAppStore((state) => state.canFundSweep);
   const keeperBalance = useAppStore((state) => state.keeperBalance);
 
-  // A sweep the Keeper cannot fund is not an option, it is a dead end. Drop it
-  // rather than offer a remedy that does nothing when confirmed.
+  /**
+   * Expanded shows everything the engine proposed, including the remedies the
+   * Keeper cannot currently fund — each labelled with the shortfall that makes
+   * it unavailable.
+   *
+   * Collapsed is the default because a list of eight options, three of which
+   * silently do nothing, is worse than three that work.
+   */
+  const [expanded, setExpanded] = useState(false);
+
+  // Collapse again whenever a different dip is opened, so the sheet does not
+  // inherit the previous shortfall's expanded state.
+  useEffect(() => {
+    if (visible) setExpanded(false);
+  }, [visible, activeShortfall]);
+
+  // A sweep the Keeper cannot fund is not an option, it is a dead end. Hide it
+  // by default rather than offer a remedy that does nothing when confirmed.
   const affordable = useMemo(
     () => interventions.filter((i) => i.kind !== 'SWEEP' || canFundSweep(i.amount ?? 0)),
     [interventions, canFundSweep, keeperBalance],
   );
 
-  const featuredIntervention = affordable.length > 0 ? affordable[0] : undefined;
-  const secondaryInterventions = affordable.slice(1);
+  const unaffordable = useMemo(
+    () => interventions.filter((i) => i.kind === 'SWEEP' && !canFundSweep(i.amount ?? 0)),
+    [interventions, canFundSweep, keeperBalance],
+  );
+
+  const shown = expanded ? [...affordable, ...unaffordable] : affordable.slice(0, 2);
+  const featuredIntervention = shown.length > 0 ? shown[0] : undefined;
+  const secondaryInterventions = shown.slice(1);
+  const hiddenCount = affordable.length + unaffordable.length - shown.length;
 
   const deficitAmount = activeShortfall?.deficit ?? 0;
   const atRiskList = activeShortfall?.atRisk ?? [];
@@ -71,6 +95,13 @@ export const ShortfallSheet: React.FC<ShortfallSheetProps> = ({
       more > 0 ? ` and ${more} more` : ''
     }`;
   };
+
+  /** A sweep bigger than the jar. Shown, but never offered as a live button. */
+  const isUnaffordable = (i: Intervention): boolean =>
+    i.kind === 'SWEEP' && !canFundSweep(i.amount ?? 0);
+
+  const blockedReason = (i: Intervention): string =>
+    `Needs ₹${Math.round(i.amount ?? 0).toLocaleString('en-IN')} in your Goals jar — it holds ₹${Math.round(keeperBalance).toLocaleString('en-IN')}.`;
 
   const handleAction = (intervention: Intervention) => {
     // Deliberately does NOT apply the intervention. This is the "pick one"
@@ -138,12 +169,24 @@ export const ShortfallSheet: React.FC<ShortfallSheetProps> = ({
             <Text style={styles.sectionTitle}>Recommended actions</Text>
             <Text style={styles.sectionSub}>Top ways to fix this shortfall</Text>
 
+            {shown.length === 0 && (
+              <EmptyState
+                icon="🤔"
+                title="No safe fix found"
+                body="Nothing in your detected mandates or reserve can lift this dip on its own."
+                hint="Adding money to your Goals jar gives the guard a sweep to offer."
+              />
+            )}
+
             {/* Featured Action Card */}
             {featuredIntervention && (
-              <View style={styles.featuredCard}>
+              <FadeIn style={[
+                styles.featuredCard,
+                isUnaffordable(featuredIntervention) && styles.cardUnaffordable,
+              ]}>
                 <View style={styles.featuredHeader}>
-                  <View style={styles.netflixLogo}>
-                    <Text style={styles.netflixN}>
+                  <View style={styles.actionLogo}>
+                    <Text style={styles.actionLogoText}>
                       {featuredIntervention.target?.displayName.slice(0, 1) ??
                         (featuredIntervention.kind === 'SWEEP' ? '🏺' : '⚡')}
                     </Text>
@@ -172,19 +215,31 @@ export const ShortfallSheet: React.FC<ShortfallSheetProps> = ({
                   )}
                 </View>
 
-                <TouchableOpacity
-                  style={styles.doThisBtnYellow}
-                  onPress={() => handleAction(featuredIntervention)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.doThisBtnTextBlack}>Do this</Text>
-                </TouchableOpacity>
-              </View>
+                {isUnaffordable(featuredIntervention) ? (
+                  <View style={styles.unavailableRow}>
+                    <Text style={styles.unavailableText}>{blockedReason(featuredIntervention)}</Text>
+                  </View>
+                ) : (
+                  <PressableScale
+                    style={styles.doThisBtnYellow}
+                    onPress={() => handleAction(featuredIntervention)}
+                  >
+                    <Text style={styles.doThisBtnTextBlack}>Do this</Text>
+                  </PressableScale>
+                )}
+              </FadeIn>
             )}
 
             {/* Secondary Actions */}
             {secondaryInterventions.map((intervention, idx) => (
-              <View key={idx} style={styles.secondaryCard}>
+              <FadeIn
+                key={`${intervention.kind}_${intervention.target?.id ?? intervention.amount ?? idx}`}
+                delay={Math.min(idx * 40, 200)}
+                style={[
+                  styles.secondaryCard,
+                  isUnaffordable(intervention) && styles.cardUnaffordable,
+                ]}
+              >
                 <View style={styles.secondaryHeader}>
                   <View style={styles.bbLogo}>
                     <Text style={styles.bbText}>
@@ -204,19 +259,33 @@ export const ShortfallSheet: React.FC<ShortfallSheetProps> = ({
                     />
                   )}
                 </View>
-                <TouchableOpacity
-                  style={styles.doThisBtnOutline}
-                  onPress={() => handleAction(intervention)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.doThisBtnTextWhite}>Do this</Text>
-                </TouchableOpacity>
-              </View>
+                {isUnaffordable(intervention) ? (
+                  <View style={styles.unavailableRow}>
+                    <Text style={styles.unavailableText}>{blockedReason(intervention)}</Text>
+                  </View>
+                ) : (
+                  <PressableScale
+                    style={styles.doThisBtnOutline}
+                    onPress={() => handleAction(intervention)}
+                  >
+                    <Text style={styles.doThisBtnTextWhite}>Do this</Text>
+                  </PressableScale>
+                )}
+              </FadeIn>
             ))}
 
-            <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7}>
-              <Text style={styles.viewAllText}>View all options ›</Text>
-            </TouchableOpacity>
+            {/* This used to be a TouchableOpacity with no onPress at all — a
+                button that looked live and did nothing. It now toggles the
+                full list, and disappears when there is nothing left to show. */}
+            {(hiddenCount > 0 || expanded) && (
+              <PressableScale style={styles.viewAllBtn} onPress={() => setExpanded((v) => !v)}>
+                <Text style={styles.viewAllText}>
+                  {expanded
+                    ? 'Show fewer options'
+                    : `View all ${affordable.length + unaffordable.length} options ›`}
+                </Text>
+              </PressableScale>
+            )}
 
             <Text style={styles.footerSecurity}>🔒 Zero-knowledge inference • 100% on-device</Text>
           </ScrollView>
@@ -367,19 +436,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: space.sm,
   },
-  netflixLogo: {
+  // Was a hardcoded Netflix red, which coloured whatever the engine happened to
+  // rank first — a Bajaj EMI pause wearing Netflix's brand.
+  actionLogo: {
     width: 36,
     height: 36,
-    borderRadius: 6,
-    backgroundColor: '#E50914',
+    borderRadius: 8,
+    backgroundColor: t.surfaceHi,
+    borderWidth: 1,
+    borderColor: t.warn,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: space.md,
   },
-  netflixN: {
-    color: '#FFFFFF',
-    fontSize: 20,
+  actionLogoText: {
+    color: t.warn,
+    fontSize: 16,
     fontWeight: '900',
+  },
+  cardUnaffordable: {
+    opacity: 0.6,
+    borderStyle: 'dashed',
+  },
+  unavailableRow: {
+    backgroundColor: t.surfaceHi,
+    borderRadius: radius.sm,
+    paddingVertical: 10,
+    paddingHorizontal: space.sm,
+  },
+  unavailableText: {
+    color: t.textDim,
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'center',
   },
   featuredMeta: {
     flex: 1,

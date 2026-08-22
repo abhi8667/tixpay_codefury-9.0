@@ -1,5 +1,11 @@
 import type { Mandate, Transaction, Cadence, Priority, Category } from '../types';
-import { daysBetween, istDayOfMonth, istDayOfWeek, nextOccurrence } from '../time';
+import { daysBetween, istDayOfMonth, istDayOfWeek, nextOccurrence, startOfIstDay } from '../time';
+
+/** IST day-of-year, for telling two charges on one day from two on two days. */
+function istDayOfYear(date: Date): number {
+  const start = startOfIstDay(date);
+  return Math.floor(start.getTime() / 86400000);
+}
 
 /** Keyword rules for categorisation and priority ranking */
 const CATEGORY_RULES: Array<[RegExp, Category, Priority]> = [
@@ -44,6 +50,23 @@ export function normalizeVpa(vpa: string): string {
     .replace(/\b[0-9a-f]{6,}\b/g, '');
     
   return handle.trim() || (parts[0] ?? vpa.toLowerCase());
+}
+
+/**
+ * A counterparty key, cased for a human.
+ *
+ * Statements state a merchant name in their own field only sometimes; the rest
+ * of the time it is buried in the address, and 'bigbasket.payu@hdfcbank' on a
+ * payee list is technically the truth and useless to read. `normalizeVpa`
+ * already strips the gateway handle and order id, so this is only the casing
+ * on top of it — no guessing, no lookup table.
+ */
+export function prettyCounterparty(vpa: string): string {
+  if (!vpa) return '';
+  const handle = normalizeVpa(vpa).split('@')[0] ?? vpa;
+  const cleaned = handle.replace(/[._-]+/g, ' ').trim();
+  if (!cleaned) return vpa;
+  return cleaned.replace(/\b[a-z]/g, (c) => c.toUpperCase());
 }
 
 /** Standard deviation helper for gap variance */
@@ -138,6 +161,35 @@ export function detectMandates(txns: Transaction[], now: Date): Mandate[] {
     }
 
     if (!cadence) continue;
+
+    /**
+     * Two gates that a median gap alone cannot enforce.
+     *
+     * The median is a robust statistic, which is exactly the problem here: it
+     * says nothing about spread. A campus vending operator charged 91 times in
+     * three months — several a day, some days none — produced a median gap of
+     * seven days and was reported as a WEEKLY ₹45 mandate, twice, because the
+     * amount buckets split it. It then went onto the projected balance as a
+     * debit that will not arrive.
+     *
+     *   1. Gaps must be tight, not merely centred. A real auto-debit lands on
+     *      a schedule; the tolerance scales with the cadence, because two days
+     *      of drift is nothing monthly and is a different rhythm weekly.
+     *   2. No two charges on the same day. A mandate fires once per cycle.
+     *      Same-day repeats are the signature of a shop, not a standing
+     *      instruction.
+     *
+     * Both are deliberately conservative. The cost of missing a mandate is a
+     * warning we do not show; the cost of inventing one is every downstream
+     * rupee being wrong.
+     */
+    const gapSpread = stdDev(gaps);
+    if (gapSpread > Math.max(2, gapDays * 0.35)) continue;
+
+    const distinctDays = new Set(
+      b.txns.map((x) => `${x.timestamp.getUTCFullYear()}-${istDayOfYear(x.timestamp)}`),
+    );
+    if (distinctDays.size < b.txns.length) continue;
 
     // Confidence
     const occurrences = b.txns.length;

@@ -43,6 +43,15 @@ export interface Transaction {
   vpa?: string;
   /** The statement narration, verbatim. Drives categorisation and provenance. */
   merchantHint?: string;
+  /**
+   * The counterparty as a human would name them: 'Dominos Pi'.
+   *
+   * Only set when the narration states one in a layout we can read without
+   * guessing — see extractDisplayName. Absent is meaningful: it says 'the file
+   * did not tell us', and the UI falls back to the raw narration rather than
+   * inventing a merchant.
+   */
+  merchantName?: string;
   accountTail?: string; // '4471' — last four only; we never retain the full number
   balanceHint?: number; // the running balance the statement stated on this row
   refNo?: string;

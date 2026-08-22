@@ -1,0 +1,11 @@
+import { readFileSync } from 'node:fs';
+import { useAppStore } from '../../../apps/mobile/store/useAppStore';
+const s = () => useAppStore.getState();
+s().importStatement(readFileSync(process.argv[2]!, 'utf8'), 'icici.xls', false);
+const m = s().moneyMap()!;
+console.log('map', JSON.stringify({...m, investing:m.investing.monthly, protection:m.protection.monthly, debt:m.debt.monthly, fixed:m.fixed.monthly}, null, 1));
+console.log('verdict', JSON.stringify(s().healthVerdict(), null, 1));
+console.log('risk', JSON.stringify(s().riskProfile(), null, 1));
+const subs = s().subscriptions();
+console.log('subs total/yr', subs?.totalAnnual, JSON.stringify(subs?.charges.map(c=>({l:c.label,a:c.amount,cad:c.cadence,n:c.occurrences,y:c.annualCost,conf:c.confidence}))));
+console.log('payees', JSON.stringify(s().payees(5).map(p=>({n:p.name,v:p.vpa,t:p.timesPaid}))));

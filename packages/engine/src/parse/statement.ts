@@ -257,6 +257,109 @@ export function parseStatementAmount(raw: string): number | null {
 
 // ─── Counterparty extraction ─────────────────────────────────────────────────
 
+/**
+ * The structured UPI narration several banks (ICICI notably) write:
+ *
+ *   UPI/Dominos Pi/dominospizzaon/UPI/YES BANK L/614226137716/PYTM6052...
+ *   └f0┘└──f1────┘└─────f2─────┘└f3┘└───f4────┘└────f5─────┘└────f6───┘
+ *
+ * f1 is the counterparty's name, f2 the payment address — TRUNCATED to
+ * fourteen characters, which is why it usually arrives without its `@handle`.
+ * That truncation is the whole reason this parser exists: with no `@` to find,
+ * the generic word-salad fallback below folds the PSP name and the remark into
+ * the grouping key, so `UPI/JUSTVEND P/justvendprivat/payjustven/ICICI BANK/…`
+ * and the same merchant with a one-character-shorter remark land in different
+ * buckets. Forty-seven visits to one vending operator became two merchants and
+ * zero recurrence.
+ *
+ * Returns undefined for anything that is not this shape, including the HDFC
+ * layout (`UPI/DR/4123…/Swiggy/HDFC/swiggy.payu@hdfcbank`) — that one states a
+ * real VPA and is handled by the field scan in `extractCounterparty`.
+ */
+export interface UpiNarration {
+  /** Counterparty as the bank wrote it: 'Dominos Pi'. Verbatim, not cleaned. */
+  payeeName: string;
+  /** Payment address, possibly truncated and possibly missing its handle. */
+  handle: string;
+  /** The payer's own remark: 'UPI', 'Paid secur', 'NO REMARKS'. */
+  remark?: string;
+  /** The counterparty's PSP: 'YES BANK L'. */
+  psp?: string;
+}
+
+/** f1 positions that are a rail marker rather than a counterparty name. */
+const RAIL_FIELD = /^(?:dr|cr|d|c|p2m|p2a|\d+)$/i;
+
+export function parseUpiNarration(narration: string): UpiNarration | undefined {
+  if (!narration) return undefined;
+
+  const fields = narration.split('/').map((f) => f.trim());
+  if (fields.length < 4) return undefined;
+  if (!/^upi$/i.test(fields[0]!)) return undefined;
+
+  const payeeName = fields[1] ?? '';
+  const handle = fields[2] ?? '';
+  if (!payeeName || !handle) return undefined;
+  // The HDFC layout puts a rail marker here and the VPA at the end.
+  if (RAIL_FIELD.test(payeeName)) return undefined;
+  // f2 must look like an address fragment, not a reference number.
+  if (!/[a-z]/i.test(handle) || /\s/.test(handle)) return undefined;
+
+  const out: UpiNarration = { payeeName, handle: handle.toLowerCase() };
+  if (fields[3]) out.remark = fields[3];
+  if (fields[4]) out.psp = fields[4];
+  return out;
+}
+
+/**
+ * A human-readable counterparty name, or undefined when the narration does not
+ * carry one worth showing.
+ *
+ * Only the structured layout above is trusted here. Guessing a merchant name
+ * out of free-form narration produces things like 'Ach D Lic Of', and a wrong
+ * name on a screen that also states a rupee figure makes the figure look wrong
+ * too.
+ */
+/**
+ * Rails that write the counterparty into the second slash-delimited field.
+ *
+ * `VSI` is a Visa standing instruction — the shape a card-on-file subscription
+ * takes on an Indian statement: `VSI/ANTHROPIC  /202607291919/6210…`. The rest
+ * of that line is a reference number and a tax note, so the second field is the
+ * only part worth showing.
+ */
+const NAMED_RAIL = /^(?:upi|vsi|nach|ach|ecs|si|imps|neft)$/i;
+
+export function extractDisplayName(narration: string): string | undefined {
+  let raw = parseUpiNarration(narration)?.payeeName;
+
+  if (!raw) {
+    const fields = narration.split('/').map((f) => f.trim());
+    const candidate = fields[1];
+    // Two fields is a rail and a reference, not a rail and a name.
+    if (
+      fields.length >= 3 &&
+      NAMED_RAIL.test(fields[0] ?? '') &&
+      candidate &&
+      // Must read as a name: letters, and not a reference number.
+      /^[a-z][a-z0-9 .&'-]{1,}$/i.test(candidate) &&
+      !RAIL_FIELD.test(candidate)
+    ) {
+      raw = candidate;
+    }
+  }
+
+  if (!raw) return undefined;
+  const name = raw.replace(/\s+/g, ' ').trim();
+  if (name.length < 2) return undefined;
+  // Bank exports are upper-case-heavy; title-case only when there is no
+  // existing lower-case, so 'Dominos Pi' and 'iPhone' survive as written.
+  const cased = /[a-z]/.test(name)
+    ? name
+    : name.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
+  return cased;
+}
+
 /** Rail prefixes and bookkeeping tokens that carry no merchant identity. */
 const NOISE_TOKENS = new Set([
   'upi', 'ach', 'nach', 'ecs', 'neft', 'imps', 'rtgs', 'si', 'mmt', 'ift',
@@ -303,6 +406,12 @@ export function extractCounterparty(narration: string): string | undefined {
     const tail = segments[segments.length - 1] ?? local;
     return `${tail}@${domain}`.replace(/[.,;:]+$/, '');
   }
+
+  // Structured UPI layout with a truncated address: the handle field is a far
+  // better key than anything the word fallback below can build, because it is
+  // the only part of the narration that does not vary with the payer's remark.
+  const structured = parseUpiNarration(narration);
+  if (structured) return structured.handle;
 
   const words = narration
     .toLowerCase()
@@ -376,6 +485,34 @@ function inferBank(preamble: string): BankCode | undefined {
 }
 
 /**
+ * Fall back to the export's own column vocabulary when the preamble is silent.
+ *
+ * ICICI's net-banking export names the account holder and the account number
+ * and never once names the bank, so the import receipt read 'OTHER ••0050' on
+ * a genuine ICICI statement. The transaction rows are no help: they are full
+ * of *counterparty* banks — 'HDFC BANK', 'YES BANK L' — and matching on those
+ * would confidently report the wrong bank, which is worse than reporting none.
+ *
+ * A bank's column headings, on the other hand, are its own. This matches the
+ * layout, not the contents, and stays undefined unless the fingerprint is
+ * distinctive.
+ */
+const HEADER_FINGERPRINTS: Array<[BankCode, string[]]> = [
+  ['ICICI', ['transaction remarks', 'withdrawal amount', 'deposit amount']],
+  ['HDFC', ['narration', 'withdrawal amt', 'deposit amt']],
+  ['SBI', ['description', 'debit', 'credit', 'txn date']],
+  ['AXIS', ['particulars', 'debit', 'credit', 'init br']],
+];
+
+function inferBankFromHeader(header: string[]): BankCode | undefined {
+  const cells = header.map(norm);
+  for (const [code, required] of HEADER_FINGERPRINTS) {
+    if (required.every((r) => cells.some((c) => c.includes(r)))) return code;
+  }
+  return undefined;
+}
+
+/**
  * Account tail from the preamble.
  *
  * Matches a masked or full account number and keeps the last four digits —
@@ -433,7 +570,8 @@ export function parseStatementCsv(
 
   // Everything above the header is the account summary; mine it for identity.
   const preamble = rows.slice(0, header.index).map((r) => r.join(' ')).join('\n');
-  const bank = options.bank ?? inferBank(preamble) ?? 'OTHER';
+  const bank =
+    options.bank ?? inferBank(preamble) ?? inferBankFromHeader(rows[header.index]!) ?? 'OTHER';
   const accountTail = options.accountTail ?? inferAccountTail(preamble);
 
   const c = header.columns;
@@ -522,6 +660,8 @@ export function parseStatementCsv(
 
     if (vpa) txn.vpa = vpa;
     if (narration) txn.merchantHint = narration;
+    const merchantName = extractDisplayName(narration);
+    if (merchantName) txn.merchantName = merchantName;
     if (accountTail) txn.accountTail = accountTail;
     if (balanceHint !== null) txn.balanceHint = balanceHint;
     if (refNo) txn.refNo = refNo;

@@ -1,6 +1,7 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, Animated, Easing, StyleSheet } from 'react-native';
 import { t, space } from '../theme';
+import { PressableScale } from './motion';
 
 export type TabName = 'Insights' | 'Pay' | 'Keeper' | 'Mandates';
 
@@ -18,38 +19,85 @@ interface BottomTabBarProps {
   onTabChange: (tab: TabName) => void;
 }
 
-export const BottomTabBar: React.FC<BottomTabBarProps> = ({
-  activeTab,
-  onTabChange,
-}) => {
-  // Four tabs, each landing on a screen that works. A fifth that opened a
-  // static mockup was worse than not having it.
-  const tabs: { name: TabName; icon: string }[] = [
-    { name: 'Insights', icon: '📊' },
-    { name: 'Pay', icon: '💳' },
-    { name: 'Keeper', icon: '🎯' },
-    { name: 'Mandates', icon: '🛡️' },
-  ];
+// Four tabs, each landing on a screen that works. A fifth that opened a static
+// mockup was worse than not having it.
+const TABS: { name: TabName; icon: string }[] = [
+  { name: 'Insights', icon: '📊' },
+  { name: 'Pay', icon: '💳' },
+  { name: 'Keeper', icon: '🎯' },
+  { name: 'Mandates', icon: '🛡️' },
+];
+
+export const BottomTabBar: React.FC<BottomTabBarProps> = ({ activeTab, onTabChange }) => {
+  const index = Math.max(
+    0,
+    TABS.findIndex((tab) => tab.name === activeTab),
+  );
+
+  /**
+   * One indicator that slides, rather than four that blink.
+   *
+   * A per-tab indicator appearing and disappearing reads as two unrelated
+   * events. A single bar travelling between them says the two tabs are places
+   * in the same row, which is the whole point of a tab bar.
+   */
+  const slide = useRef(new Animated.Value(index)).current;
+
+  useEffect(() => {
+    const animation = Animated.timing(slide, {
+      toValue: index,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      // Interpolating to a percentage string is a layout value.
+      useNativeDriver: false,
+    });
+    animation.start();
+    // Frames are not delivered while the app is backgrounded; land the bar
+    // under the right tab regardless.
+    const settle = setTimeout(() => slide.setValue(index), 300);
+    return () => {
+      animation.stop();
+      clearTimeout(settle);
+    };
+  }, [index, slide]);
+
+  const width = `${100 / TABS.length}%`;
 
   return (
     <View style={styles.container}>
-      {tabs.map((tab) => {
+      <Animated.View
+        style={[
+          styles.indicatorTrack,
+          {
+            width: width as `${number}%`,
+            transform: [
+              {
+                translateX: slide.interpolate({
+                  inputRange: TABS.map((_, i) => i),
+                  outputRange: TABS.map((_, i) => `${i * 100}%`),
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <View style={styles.indicator} />
+      </Animated.View>
+
+      {TABS.map((tab) => {
         const isActive = activeTab === tab.name;
         return (
-          <TouchableOpacity
+          <PressableScale
             key={tab.name}
             style={styles.tabItem}
             onPress={() => onTabChange(tab.name)}
-            activeOpacity={0.7}
+            accessibilityLabel={TAB_LABELS[tab.name]}
           >
-            <Text style={[styles.tabIcon, isActive && styles.activeIcon]}>
-              {tab.icon}
-            </Text>
+            <Text style={[styles.tabIcon, isActive && styles.activeIcon]}>{tab.icon}</Text>
             <Text style={[styles.tabLabel, isActive && styles.activeLabel]}>
               {TAB_LABELS[tab.name]}
             </Text>
-            {isActive && <View style={styles.activeIndicator} />}
-          </TouchableOpacity>
+          </PressableScale>
         );
       })}
     </View>
@@ -65,11 +113,23 @@ const styles = StyleSheet.create({
     borderTopColor: '#1A202C',
     paddingBottom: 4,
   },
+  indicatorTrack: {
+    position: 'absolute',
+    bottom: 6,
+    left: 0,
+    alignItems: 'center',
+  },
+  indicator: {
+    width: 24,
+    height: 3,
+    backgroundColor: t.warn,
+    borderRadius: 1.5,
+  },
   tabItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
+    paddingTop: space.xs,
   },
   tabIcon: {
     fontSize: 18,
@@ -87,13 +147,5 @@ const styles = StyleSheet.create({
   activeLabel: {
     color: t.warn, // Gold accent for active tab label
     fontWeight: '700',
-  },
-  activeIndicator: {
-    position: 'absolute',
-    bottom: 2,
-    width: 24,
-    height: 3,
-    backgroundColor: t.warn,
-    borderRadius: 1.5,
   },
 });

@@ -1,8 +1,9 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { t, typography, space, radius } from '../theme';
 import { Rupee } from '../components/Rupee';
 import { BalanceCurve } from '../components/BalanceCurve';
+import { FadeIn, PressableScale, ProgressBar, Pulse, money } from '../components/motion';
 import { useAppStore } from '../../store/useAppStore';
 import { formatIstDate, PENALTY } from '@tixpay/engine';
 import type { Shortfall } from '@tixpay/types';
@@ -15,7 +16,12 @@ interface InsightsScreenProps {
   onOpenSpendInsights?: () => void;
   onOpenSipCheck?: () => void;
   onOpenChat?: () => void;
+  onOpenSubscriptions?: () => void;
+  onOpenMoneyMap?: () => void;
+  onOpenRiskProfile?: () => void;
 }
+
+const HORIZONS = [30, 60, 90];
 
 export const InsightsScreen: React.FC<InsightsScreenProps> = ({
   onTapDip,
@@ -25,6 +31,9 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
   onOpenSpendInsights,
   onOpenSipCheck,
   onOpenChat,
+  onOpenSubscriptions,
+  onOpenMoneyMap,
+  onOpenRiskProfile,
 }) => {
   const curve = useAppStore((state) => state.curve());
   const mandates = useAppStore((state) => state.mandates());
@@ -36,6 +45,10 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
   const keeperProgress = useAppStore((state) => state.keeperProgress());
   const goalLabel = useAppStore((state) => state.goalLabel);
   const goalTargetAmount = useAppStore((state) => state.goalTargetAmount);
+  const horizonDays = useAppStore((state) => state.horizonDays);
+  const setHorizon = useAppStore((state) => state.setHorizon);
+  const healthVerdict = useAppStore((state) => state.healthVerdict);
+  const pipelineCache = useAppStore((state) => state._pipelineCache);
 
   const activeShortfall = shortfalls.length > 0 ? shortfalls[0] : undefined;
   // Green means the projection genuinely cleared, not that a button was
@@ -44,6 +57,11 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
   const isBackInSafeZone = !activeShortfall;
 
   const currentBalance = ledger?.currentBalance ?? curve[0]?.balance ?? 0;
+
+  const verdict = useMemo(
+    () => healthVerdict(),
+    [healthVerdict, pipelineCache, keeperBalance],
+  );
 
   /**
    * Safe to spend: the most you could pay today without pushing any day in the
@@ -67,47 +85,63 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
    *
    * Uses the engine's PENALTY table rather than a guess: OTT is deliberately
    * ₹0 there — a failed Netflix autopay costs a service pause, not a fee — and
-   * a utility bounce is ₹100, not ₹250. Approximating it here reported ₹750
-   * where the real exposure was ₹350, which is the kind of number a judge
-   * checks against the sheet on the next screen.
+   * a utility bounce is ₹100, not ₹250.
    */
   const penaltyAtRisk = shortfalls.reduce(
     (sum, sf) => sum + sf.atRisk.reduce((s2, m) => s2 + PENALTY[m.category], 0),
     0,
   );
 
+  const tools: Array<{ icon: string; label: string; onPress?: () => void }> = [
+    { icon: '📊', label: 'Spend Insights', onPress: onOpenSpendInsights },
+    { icon: '🔁', label: 'Recurring', onPress: onOpenSubscriptions },
+    { icon: '🗺️', label: 'Money Map', onPress: onOpenMoneyMap },
+    { icon: '🎚️', label: 'Risk Profile', onPress: onOpenRiskProfile },
+    { icon: '📈', label: 'SIP Check', onPress: onOpenSipCheck },
+    { icon: '💬', label: 'Money Coach', onPress: onOpenChat },
+  ];
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-      {/* 30-Day Selector Header */}
-      <TouchableOpacity style={styles.selectorRow} activeOpacity={0.7}>
-        <Text style={styles.selectorText}>Next 30 days</Text>
-        <Text style={styles.dropdownArrow}> ∨</Text>
-      </TouchableOpacity>
+      {/* ── Horizon ─────────────────────────────────────────────────── */}
+      <View style={styles.horizonRow}>
+        {HORIZONS.map((days) => {
+          const isActive = days === horizonDays;
+          return (
+            <PressableScale
+              key={days}
+              style={[styles.horizonPill, isActive && styles.horizonPillActive]}
+              onPress={() => setHorizon(days)}
+              haptic={false}
+            >
+              <Text style={[styles.horizonText, isActive && styles.horizonTextActive]}>
+                Next {days} days
+              </Text>
+            </PressableScale>
+          );
+        })}
+      </View>
 
-      {/* Inferred Balance Header */}
-      <View style={styles.balanceHeader}>
+      {/* ── Balance ─────────────────────────────────────────────────── */}
+      <FadeIn style={styles.balanceHeader}>
         <View>
-          <View style={styles.inferredRow}>
-            <Text style={styles.inferredLabel}>Inferred Balance</Text>
-            <View style={styles.infoBadge}>
-              <Text style={styles.infoText}>i</Text>
-            </View>
-          </View>
-          <Rupee
-            amount={currentBalance}
-            style={typography.display}
-            showPrefix={false}
-          />
+          <Text style={styles.inferredLabel}>Inferred balance</Text>
+          <Rupee amount={currentBalance} style={typography.display} showPrefix={false} animate />
+          <Text style={styles.inferredSub}>
+            {ledger?.drift === 0
+              ? 'Reconciled to your statement, zero drift'
+              : `Reconciled to within ${money(ledger?.drift ?? 0)}`}
+          </Text>
         </View>
 
-        <TouchableOpacity style={styles.safeSpendPill} activeOpacity={0.8} onPress={onOpenPay}>
+        <PressableScale style={styles.safeSpendPill} onPress={onOpenPay}>
           <Text style={styles.safeSpendLabel}>Safe to spend </Text>
           <Rupee amount={safeSpendAmount} style={styles.safeSpendValue} showPrefix={false} />
           <Text style={styles.safeSpendArrow}> ›</Text>
-        </TouchableOpacity>
-      </View>
+        </PressableScale>
+      </FadeIn>
 
-      {/* Hero Cash-Flow SVG Curve */}
+      {/* ── Curve ───────────────────────────────────────────────────── */}
       <BalanceCurve
         curve={curve}
         shortfall={activeShortfall}
@@ -115,183 +149,205 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
         isResolved={isBackInSafeZone}
       />
 
-      {/* Resolved Emerald Banner Overlay */}
-      {isBackInSafeZone && (
-        <View style={styles.resolvedBanner}>
+      {isBackInSafeZone ? (
+        <FadeIn style={styles.resolvedBanner}>
           <View style={styles.checkCircle}>
             <Text style={styles.checkIcon}>✓</Text>
           </View>
-          <View>
+          <View style={styles.bannerText}>
             <Text style={styles.resolvedTitle}>You're in the safe zone</Text>
             <Text style={styles.resolvedSub}>
-              No projected shortfall in the next 30 days
+              No projected shortfall in the next {horizonDays} days
             </Text>
           </View>
-        </View>
+        </FadeIn>
+      ) : (
+        <Pulse>
+          <PressableScale
+            style={styles.alertBanner}
+            onPress={() => activeShortfall && onTapDip(activeShortfall)}
+          >
+            <View style={styles.alertCircle}>
+              <Text style={styles.checkIcon}>!</Text>
+            </View>
+            <View style={styles.bannerText}>
+              <Text style={styles.alertTitle}>
+                {money(activeShortfall!.deficit)} short on{' '}
+                {formatIstDate(activeShortfall!.date)}
+              </Text>
+              <Text style={styles.alertSub}>
+                {activeShortfall!.atRisk.length} payment
+                {activeShortfall!.atRisk.length === 1 ? '' : 's'} at risk — tap to see the fixes
+              </Text>
+            </View>
+          </PressableScale>
+        </Pulse>
       )}
 
-      {/* Upcoming Mandates Horizontal Strip */}
+      {/* ── Health strip ────────────────────────────────────────────── */}
+      {verdict && (
+        <FadeIn delay={60}>
+          <PressableScale style={styles.healthCard} onPress={onOpenMoneyMap} haptic={false}>
+            <View style={styles.healthScore}>
+              <Text style={styles.healthScoreText}>{verdict.score}</Text>
+            </View>
+            <View style={styles.healthInfo}>
+              <Text style={styles.healthTitle}>{verdict.headline}</Text>
+              <Text style={styles.healthSub} numberOfLines={2}>
+                {verdict.findings[0]?.text ?? 'Open your Money Map for the full picture.'}
+              </Text>
+            </View>
+            <Text style={styles.chevron}>›</Text>
+          </PressableScale>
+        </FadeIn>
+      )}
+
+      {/* ── Mandates strip ──────────────────────────────────────────── */}
       <View style={styles.sectionHeaderRow}>
-        <Text style={styles.sectionTitle}>Upcoming Mandates</Text>
-        <TouchableOpacity onPress={onOpenMandates}>
-          <Text style={styles.seeAllText}>See All</Text>
-        </TouchableOpacity>
+        <Text style={styles.sectionTitle}>Upcoming mandates</Text>
+        <PressableScale onPress={onOpenMandates} haptic={false}>
+          <Text style={styles.seeAllText}>See all</Text>
+        </PressableScale>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.mandatesScroll}>
-        {mandates.map((m) => {
-          const isPaused = pausedMandateIds.includes(m.id);
-          const displayName = redactionOn && m.displayName.length > 8
-            ? `${m.displayName.slice(0, 4)}••••`
-            : m.displayName;
+      {mandates.length === 0 ? (
+        <PressableScale style={styles.noMandatesCard} onPress={onOpenSubscriptions} haptic={false}>
+          <Text style={styles.noMandatesIcon}>🛡️</Text>
+          <View style={styles.bannerText}>
+            <Text style={styles.noMandatesTitle}>No auto-debits on this account</Text>
+            <Text style={styles.noMandatesSub}>
+              Nothing bills you on a fixed schedule, so the bounce guard has nothing to warn
+              about. Tap to see what does repeat.
+            </Text>
+          </View>
+        </PressableScale>
+      ) : (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.mandatesScroll}>
+          {mandates.map((m, index) => {
+            const isPaused = pausedMandateIds.includes(m.id);
+            const displayName =
+              redactionOn && m.displayName.length > 8
+                ? `${m.displayName.slice(0, 4)}••••`
+                : m.displayName;
 
-          return (
-            <View
-              key={m.id}
-              style={[styles.mandateCard, isPaused && styles.mandateCardPaused]}
-            >
-              <View style={styles.mandateHeader}>
-                <View style={[styles.mandateLogoPlaceholder, isPaused && styles.mandateLogoPaused]}>
-                  <Text style={styles.mandateLogoText}>
-                    {m.displayName.slice(0, 2).toUpperCase()}
-                  </Text>
-                </View>
-                <Text style={styles.mandateName} numberOfLines={1}>
-                  {displayName}
-                </Text>
-              </View>
-              <View style={styles.mandateMetaRow}>
-                <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
-                <Text style={[styles.mandateDate, isPaused && styles.pausedBadge]}>
-                  {isPaused ? 'PAUSED' : formatIstDate(m.nextDebit)}
-                </Text>
-              </View>
-            </View>
-          );
-        })}
-      </ScrollView>
+            return (
+              <FadeIn key={m.id} delay={Math.min(index * 30, 200)}>
+                <PressableScale
+                  style={[styles.mandateCard, isPaused && styles.mandateCardPaused]}
+                  onPress={onOpenMandates}
+                  haptic={false}
+                >
+                  <View style={styles.mandateHeader}>
+                    <View
+                      style={[styles.mandateLogoPlaceholder, isPaused && styles.mandateLogoPaused]}
+                    >
+                      <Text style={styles.mandateLogoText}>
+                        {m.displayName.slice(0, 2).toUpperCase()}
+                      </Text>
+                    </View>
+                    <Text style={styles.mandateName} numberOfLines={1}>
+                      {displayName}
+                    </Text>
+                  </View>
+                  <View style={styles.mandateMetaRow}>
+                    <Rupee amount={m.amount} style={styles.mandateAmount} showPrefix={false} />
+                    <Text style={[styles.mandateDate, isPaused && styles.pausedBadge]}>
+                      {isPaused ? 'PAUSED' : formatIstDate(m.nextDebit)}
+                    </Text>
+                  </View>
+                </PressableScale>
+              </FadeIn>
+            );
+          })}
+        </ScrollView>
+      )}
 
-      {/* Grid Stat Cards: Bounce Risk & Safe to Spend */}
+      {/* ── Stat tiles ──────────────────────────────────────────────── */}
       <View style={styles.gridRow}>
-        <View style={[styles.gridCard, styles.bounceRiskCard]}>
+        <FadeIn delay={80} style={styles.gridCard}>
           <View style={styles.iconCircleYellow}>
             <Text style={styles.iconYellow}>⚠️</Text>
           </View>
-          <Text style={styles.gridLabel}>Bounce Risk</Text>
+          <Text style={styles.gridLabel}>Bounce risk</Text>
           <Text style={styles.gridValueYellow}>
-            {isBackInSafeZone ? 'None' : `₹${penaltyAtRisk.toLocaleString('en-IN')}`}
+            {isBackInSafeZone ? 'None' : money(penaltyAtRisk)}
           </Text>
           <Text style={styles.gridSub}>
-            {isBackInSafeZone ? 'Next 30 days' : 'In bounce penalties'}
+            {isBackInSafeZone ? `Next ${horizonDays} days` : 'In bounce penalties'}
           </Text>
-        </View>
+        </FadeIn>
 
-        <View style={[styles.gridCard, styles.safeSpendCard]}>
+        <FadeIn delay={110} style={styles.gridCard}>
           <View style={styles.iconCircleGreen}>
             <Text style={styles.iconGreen}>👛</Text>
           </View>
-          <Text style={styles.gridLabel}>Safe to Spend</Text>
+          <Text style={styles.gridLabel}>Safe to spend</Text>
           <Rupee amount={safeSpendAmount} style={styles.gridValueGreen} showPrefix={false} />
           <Text style={styles.gridSub}>
             {curve.length > 0 ? `Lowest on ${formatIstDate(lowestPoint.date)}` : '—'}
           </Text>
-        </View>
+        </FadeIn>
       </View>
 
-      {/* Goal (Keeper Jar) Preview Card */}
-      <TouchableOpacity style={styles.keeperCard} onPress={onOpenKeeper} activeOpacity={0.8}>
-        <View style={styles.jarGraphicPlaceholder}>
-          <Text style={styles.jarEmoji}>🎯</Text>
-        </View>
-        <View style={styles.keeperInfo}>
-          <Text style={styles.keeperTitle}>{goalLabel}</Text>
-          <Text style={styles.keeperSub}>
-            Saving toward ₹{goalTargetAmount.toLocaleString('en-IN')}
-          </Text>
-          <Rupee amount={keeperBalance} style={styles.keeperAmount} showPrefix={false} />
-
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressBar, { width: `${Math.round(keeperProgress * 100)}%` }]} />
+      {/* ── Goal ────────────────────────────────────────────────────── */}
+      <FadeIn delay={140}>
+        <PressableScale style={styles.keeperCard} onPress={onOpenKeeper} haptic={false}>
+          <View style={styles.jarGraphicPlaceholder}>
+            <Text style={styles.jarEmoji}>🎯</Text>
           </View>
-        </View>
-        <Text style={styles.keeperPct}>{Math.round(keeperProgress * 100)}% of goal ›</Text>
-      </TouchableOpacity>
+          <View style={styles.keeperInfo}>
+            <Text style={styles.keeperTitle}>{goalLabel}</Text>
+            <Text style={styles.keeperSub}>Saving toward {money(goalTargetAmount)}</Text>
+            <Rupee amount={keeperBalance} style={styles.keeperAmount} showPrefix={false} animate />
+            <ProgressBar progress={keeperProgress} height={4} style={styles.keeperTrack} />
+          </View>
+          <Text style={styles.keeperPct}>{Math.round(keeperProgress * 100)}% ›</Text>
+        </PressableScale>
+      </FadeIn>
 
-      {/* WealthTech tools: spend analysis, SIP readiness, and the coach */}
+      {/* ── Tools ───────────────────────────────────────────────────── */}
       <View style={styles.sectionHeaderRow}>
         <Text style={styles.sectionTitle}>Tools</Text>
       </View>
-      <View style={styles.toolsRow}>
-        <TouchableOpacity style={styles.toolCard} onPress={onOpenSpendInsights} activeOpacity={0.8}>
-          <Text style={styles.toolIcon}>📊</Text>
-          <Text style={styles.toolLabel}>Spend Insights</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.toolCard} onPress={onOpenSipCheck} activeOpacity={0.8}>
-          <Text style={styles.toolIcon}>📈</Text>
-          <Text style={styles.toolLabel}>SIP Check</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.toolCard} onPress={onOpenChat} activeOpacity={0.8}>
-          <Text style={styles.toolIcon}>💬</Text>
-          <Text style={styles.toolLabel}>Money Coach</Text>
-        </TouchableOpacity>
+      <View style={styles.toolsGrid}>
+        {tools.map((tool, index) => (
+          <FadeIn key={tool.label} delay={160 + index * 25} style={styles.toolWrap}>
+            <PressableScale style={styles.toolCard} onPress={tool.onPress}>
+              <Text style={styles.toolIcon}>{tool.icon}</Text>
+              <Text style={styles.toolLabel}>{tool.label}</Text>
+            </PressableScale>
+          </FadeIn>
+        ))}
       </View>
     </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: t.bg,
+  container: { flex: 1, backgroundColor: t.bg },
+  scrollContent: { padding: space.md, paddingBottom: 40 },
+
+  horizonRow: { flexDirection: 'row', gap: space.xs, marginBottom: space.md },
+  horizonPill: {
+    paddingHorizontal: space.sm,
+    paddingVertical: 5,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: t.border,
+    backgroundColor: t.surface,
   },
-  scrollContent: {
-    padding: space.md,
-    paddingBottom: 40,
-  },
-  selectorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: space.sm,
-  },
-  selectorText: {
-    color: t.text,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  dropdownArrow: {
-    color: t.textDim,
-    fontSize: 14,
-  },
+  horizonPillActive: { borderColor: t.warn, backgroundColor: '#262010' },
+  horizonText: { color: t.textDim, fontSize: 11, fontWeight: '600' },
+  horizonTextActive: { color: t.warn, fontWeight: '700' },
+
   balanceHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     marginBottom: space.md,
   },
-  inferredRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  inferredLabel: {
-    color: t.textDim,
-    fontSize: 13,
-    fontWeight: '500',
-    marginRight: 4,
-  },
-  infoBadge: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: t.surfaceHi,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  infoText: {
-    color: t.textDim,
-    fontSize: 10,
-    fontWeight: '700',
-  },
+  inferredLabel: { color: t.textDim, fontSize: 13, fontWeight: '500', marginBottom: 2 },
+  inferredSub: { color: t.textFaint, fontSize: 10, marginTop: 3 },
   safeSpendPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -303,31 +359,26 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginTop: 4,
   },
-  safeSpendLabel: {
-    color: t.ok,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  safeSpendValue: {
-    color: t.ok,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  deltaGreen: {
-    color: t.ok,
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  safeSpendArrow: {
-    color: t.ok,
-    fontSize: 14,
-    fontWeight: '700',
-  },
+  safeSpendLabel: { color: t.ok, fontSize: 13, fontWeight: '600' },
+  safeSpendValue: { color: t.ok, fontSize: 13, fontWeight: '700' },
+  safeSpendArrow: { color: t.ok, fontSize: 14, fontWeight: '700' },
+
+  bannerText: { flex: 1 },
   resolvedBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#0A261C',
     borderColor: t.ok,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: space.md,
+    marginVertical: space.md,
+  },
+  alertBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#261214',
+    borderColor: t.danger,
     borderWidth: 1,
     borderRadius: radius.md,
     padding: space.md,
@@ -342,20 +393,52 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: space.md,
   },
-  checkIcon: {
-    color: '#000000',
-    fontSize: 18,
-    fontWeight: '800',
+  alertCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: t.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: space.md,
   },
-  resolvedTitle: {
-    color: t.ok,
+  checkIcon: { color: '#000000', fontSize: 18, fontWeight: '800' },
+  resolvedTitle: { color: t.ok, fontSize: 15, fontWeight: '700' },
+  resolvedSub: { color: t.textDim, fontSize: 12 },
+  alertTitle: { color: t.danger, fontSize: 15, fontWeight: '800' },
+  alertSub: { color: t.textDim, fontSize: 12, marginTop: 1 },
+
+  healthCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: t.surface,
+    borderColor: t.border,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: space.md,
+    marginBottom: space.sm,
+  },
+  healthScore: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: t.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: space.md,
+  },
+  healthScoreText: {
+    color: t.accent,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '900',
+    fontVariant: ['tabular-nums'],
   },
-  resolvedSub: {
-    color: t.textDim,
-    fontSize: 12,
-  },
+  healthInfo: { flex: 1 },
+  healthTitle: { color: t.text, fontSize: 14, fontWeight: '700' },
+  healthSub: { color: t.textDim, fontSize: 11, marginTop: 2, lineHeight: 16 },
+  chevron: { color: t.textDim, fontSize: 20, marginLeft: space.sm },
+
   sectionHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -363,19 +446,24 @@ const styles = StyleSheet.create({
     marginTop: space.md,
     marginBottom: space.sm,
   },
-  sectionTitle: {
-    color: t.text,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  seeAllText: {
-    color: t.warn,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  mandatesScroll: {
+  sectionTitle: { color: t.text, fontSize: 16, fontWeight: '700' },
+  seeAllText: { color: t.warn, fontSize: 13, fontWeight: '700' },
+
+  noMandatesCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: t.surface,
+    borderColor: t.border,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: space.md,
     marginBottom: space.lg,
   },
+  noMandatesIcon: { fontSize: 22, marginRight: space.sm },
+  noMandatesTitle: { color: t.text, fontSize: 14, fontWeight: '700' },
+  noMandatesSub: { color: t.textDim, fontSize: 12, lineHeight: 17, marginTop: 2 },
+
+  mandatesScroll: { marginBottom: space.lg },
   mandateCard: {
     width: 140,
     backgroundColor: t.surface,
@@ -385,15 +473,8 @@ const styles = StyleSheet.create({
     padding: space.sm,
     marginRight: space.sm,
   },
-  mandateCardPaused: {
-    borderColor: t.ok,
-    backgroundColor: '#0A261C',
-  },
-  mandateHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: space.sm,
-  },
+  mandateCardPaused: { borderColor: t.ok, backgroundColor: '#0A261C' },
+  mandateHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: space.sm },
   mandateLogoPlaceholder: {
     width: 24,
     height: 24,
@@ -403,43 +484,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 6,
   },
-  mandateLogoPaused: {
-    backgroundColor: t.ok,
-  },
-  mandateLogoText: {
-    color: t.warn,
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  mandateName: {
-    color: t.text,
-    fontSize: 12,
-    fontWeight: '600',
-    flex: 1,
-  },
+  mandateLogoPaused: { backgroundColor: t.ok },
+  mandateLogoText: { color: t.warn, fontSize: 10, fontWeight: '800' },
+  mandateName: { color: t.text, fontSize: 12, fontWeight: '600', flex: 1 },
   mandateMetaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  mandateAmount: {
-    color: t.text,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  mandateDate: {
-    color: t.textDim,
-    fontSize: 11,
-  },
-  pausedBadge: {
-    color: t.ok,
-    fontWeight: '800',
-  },
-  gridRow: {
-    flexDirection: 'row',
-    gap: space.md,
-    marginBottom: space.lg,
-  },
+  mandateAmount: { color: t.text, fontSize: 14, fontWeight: '700' },
+  mandateDate: { color: t.textDim, fontSize: 11 },
+  pausedBadge: { color: t.ok, fontWeight: '800' },
+
+  gridRow: { flexDirection: 'row', gap: space.md, marginBottom: space.md },
   gridCard: {
     flex: 1,
     backgroundColor: t.surface,
@@ -448,8 +505,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: space.md,
   },
-  bounceRiskCard: {},
-  safeSpendCard: {},
   iconCircleYellow: {
     width: 32,
     height: 32,
@@ -459,9 +514,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: space.xs,
   },
-  iconYellow: {
-    fontSize: 16,
-  },
+  iconYellow: { fontSize: 16 },
   iconCircleGreen: {
     width: 32,
     height: 32,
@@ -471,31 +524,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: space.xs,
   },
-  iconGreen: {
-    fontSize: 16,
-  },
-  gridLabel: {
-    color: t.textDim,
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  gridValueYellow: {
-    color: t.warn,
-    fontSize: 18,
-    fontWeight: '800',
-    marginBottom: 2,
-  },
-  gridValueGreen: {
-    color: t.ok,
-    fontSize: 18,
-    fontWeight: '800',
-    marginBottom: 2,
-  },
-  gridSub: {
-    color: t.textFaint,
-    fontSize: 11,
-  },
+  iconGreen: { fontSize: 16 },
+  gridLabel: { color: t.textDim, fontSize: 12, fontWeight: '600', marginBottom: 2 },
+  gridValueYellow: { color: t.warn, fontSize: 18, fontWeight: '800', marginBottom: 2 },
+  gridValueGreen: { color: t.ok, fontSize: 18, fontWeight: '800', marginBottom: 2 },
+  gridSub: { color: t.textFaint, fontSize: 11 },
+
   keeperCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -514,66 +548,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: space.md,
   },
-  jarEmoji: {
-    fontSize: 24,
-  },
-  keeperInfo: {
-    flex: 1,
-  },
-  keeperTitle: {
-    color: t.text,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  keeperSub: {
-    color: t.textDim,
-    fontSize: 11,
-    marginBottom: 2,
-  },
-  keeperAmount: {
-    color: t.text,
-    fontSize: 16,
-    fontWeight: '800',
-    marginBottom: 6,
-  },
-  progressTrack: {
-    height: 4,
-    backgroundColor: t.border,
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressBar: {
-    height: '100%',
-    backgroundColor: t.warn,
-  },
-  keeperPct: {
-    color: t.textDim,
-    fontSize: 12,
-    fontWeight: '600',
-    marginLeft: space.xs,
-  },
-  toolsRow: {
-    flexDirection: 'row',
-    gap: space.sm,
-    marginBottom: space.md,
-  },
+  jarEmoji: { fontSize: 24 },
+  keeperInfo: { flex: 1 },
+  keeperTitle: { color: t.text, fontSize: 14, fontWeight: '700' },
+  keeperSub: { color: t.textDim, fontSize: 11, marginBottom: 2 },
+  keeperAmount: { color: t.text, fontSize: 16, fontWeight: '800', marginBottom: 6 },
+  keeperTrack: { width: '100%' },
+  keeperPct: { color: t.textDim, fontSize: 12, fontWeight: '600', marginLeft: space.xs },
+
+  toolsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  toolWrap: { width: '31%', flexGrow: 1 },
   toolCard: {
-    flex: 1,
     backgroundColor: t.surface,
     borderColor: t.border,
     borderWidth: 1,
     borderRadius: radius.md,
-    padding: space.md,
+    paddingVertical: space.md,
+    paddingHorizontal: space.xs,
     alignItems: 'center',
   },
-  toolIcon: {
-    fontSize: 22,
-    marginBottom: space.xs,
-  },
-  toolLabel: {
-    color: t.text,
-    fontSize: 12,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
+  toolIcon: { fontSize: 22, marginBottom: space.xs },
+  toolLabel: { color: t.text, fontSize: 11, fontWeight: '600', textAlign: 'center' },
 });
