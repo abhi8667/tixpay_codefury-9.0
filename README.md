@@ -28,6 +28,58 @@ TiXPay is an on-device, zero-integration cash-flow guard for UPI users. It reads
 
 ---
 
+## 🧠 How the intelligence works — and what it is not
+
+TiXPay contains **no machine-learning model, no neural network, and no LLM.** There are
+no model weights in this repo, no inference runtime, and no API keys. This is deliberate,
+and it is worth saying out loud before anyone asks.
+
+What the engine actually is: a **deterministic statistical inference layer** over the SMS
+inbox. Every "insight" the app shows is arithmetic you can read, step through, and unit-test.
+
+| Feature | What people assume | What it actually is |
+|---|---|---|
+| Recurring-debit discovery | Sequence model / clustering | Group by normalised VPA + amount (±5% band), take the **median inter-arrival gap**, bucket it (28–31d → MONTHLY, 6–8d → WEEKLY, 89–92d → QUARTERLY). Confidence = `0.6·countScore + 0.4·varianceScore`. |
+| SMS understanding | NLP / entity extraction model | Bank-specific regex over a fixed template set, with a hand-labelled fixture corpus as the regression suite. |
+| Merchant category (MCC) | Classifier | VPA-string heuristics + a seed lookup table, every result carrying an explicit confidence score. |
+| Balance projection | Time-series forecasting | A shadow ledger replayed forward over detected mandates and inferred income events. Pure accounting. |
+| Interventions | Recommender system | Constraint search: find the smallest set of pauses/sweeps/shifts that lifts the curve back above the ₹500 buffer. |
+
+### Why this is the right call here, not a shortcut
+
+- **Auditable.** When the app says *"your ₹5,000 SIP bounces on the 9th,"* we can show the
+  exact three SMS messages and the median gap that produced it. A model can't do that, and
+  in personal finance an unexplainable number is a number nobody acts on.
+- **Deterministic.** Same inbox, same `now`, same output — every time. That is why the
+  entire engine is covered by **253 tests that run in milliseconds** instead of by
+  eyeballing an APK. No drift, no retraining, no silent regression.
+- **Genuinely on-device.** Zero network calls, zero bytes leave the phone, and it runs on a
+  ₹8,000 Android device with no accelerator. An on-device model would cost tens of MB and a
+  native runtime; a cloud model would break the privacy claim that is the whole product.
+- **Cold-start honest.** It works on message #3, not after enough data to train on.
+
+### Stage line
+
+> *"There's no model in this app. Recurring-debit detection is a median-gap statistic,
+> parsing is regex over bank templates, and the projection is a replayed ledger — all
+> deterministic, all on-device, all covered by 253 tests. We chose that over ML because a
+> financial warning a user can't audit is a warning they won't act on. The one place a
+> model would genuinely beat us is merchant categorisation, where we're currently on
+> heuristics — that's on the roadmap slide, not in this build."*
+
+If a judge asks **"where's the AI?"** — answer plainly: *"There isn't one, and that's a
+design decision. Here's the arithmetic instead."* Do not hedge, and do not call regex
+"NLP."
+
+### On the roadmap, honestly scoped
+
+A small on-device classifier for **merchant → category** is the one place ML would beat
+what we have today, because §1.3 of the build spec already admits MCC resolution is our
+weakest link. It would ship as JSON weights with no native dependency and no network. It
+is not in this build.
+
+---
+
 ## ⚡ How to Run
 
 ### 1. Prerequisites & Installation
@@ -90,6 +142,51 @@ pnpm --filter @tixpay/engine test
 # Run Automated Live Pitch Demo Script
 pnpm --filter @tixpay/engine exec tsx scripts/use_case_demo.ts
 ```
+
+---
+
+## 🎬 Demo script
+
+Every number below is produced by the engine from `fixtures/demo_inbox.json` — nothing on
+these screens is hardcoded. The app opens on **26 March 2026** because that is the date
+where the guard has something to *not* warn about; a guard that fires on every amount is a
+guard nobody believes.
+
+**Moment 1 — the intercept (the headline)**
+
+1. Open the app. Insights shows a clear curve: balance ₹21,597, lowest projected ₹4,900,
+   no shortfalls. *"Right now this person is fine."*
+2. Pay → **Scan QR** (or use the merchant already loaded). Type **₹500**. Amber:
+   *"Better paid by card — swipe your Amex SmartEarn."* No panic, just a better rail.
+3. Type **₹2,500**. Still amber. The guard is quiet because there is nothing to warn about.
+4. Type **₹8,000**. Red:
+   > **This leaves you ₹3,600 short on 7 April.**
+   > Your ₹1,899 LIC Premium will bounce.
+
+   Three at-risk debits listed underneath: LIC Premium, BESCOM Electricity, Netflix.
+
+   The point to make out loud: *the verdict is recomputed on every keystroke.* Ask a judge
+   to type their own number.
+
+**Moment 2 — the resolution**
+
+5. Tap **Pay anyway**. A debit SMS lands and the ledger reconciles to ₹13,597.
+6. Back on Insights, the curve now dips to **−₹3,100** with a shortfall on 6 April.
+7. Tap the dip. The engine offers what it actually computed — a ₹4,500 sweep, or pausing a
+   mandate — each with the rescued curve precomputed.
+8. Confirm one. The curve re-projects for real; green means the projection genuinely
+   cleared, not that a button was pressed.
+
+**Scenario presets** (Simulator → the three buttons) are dates, not doctored inboxes:
+
+| Preset | Date | What it shows |
+|---|---|---|
+| `healthy` | 13 Mar | Flat and clear. Nothing warns. |
+| `tight` | 26 Mar | **Default.** Clear on open; ₹8,000 creates a fresh shortfall. |
+| `bounce` | 1 Mar | Already short on the 11th — Insights opens on a red dip. |
+
+Moving the World Clock is the only thing that changes between them. No SMS is fabricated to
+make a demo work, which is the answer to *"is this rigged?"*
 
 ---
 

@@ -83,6 +83,30 @@ Never build UI that trains a person to type their real UPI PIN into a non-PSP ap
 ### 1.7 READ_SMS is Play-Store restricted
 For non-default-SMS apps. Slide line: *"Production path is the RBI Account Aggregator framework or an on-device notification listener. SMS is the zero-integration prototype."* Judges reward knowing your own constraints.
 
+### 1.8 There is no ML model — say so first, before you're asked
+
+The theme invites "AI-powered" framing. We are not going to use it, because the repo would
+contradict it in thirty seconds. TiXPay has **no model weights, no inference runtime, no
+LLM, no API key.** Everything is deterministic statistics: median inter-arrival gaps for
+mandate discovery, regex over bank SMS templates, VPA heuristics for MCC, and a replayed
+ledger for the projection.
+
+Frame it as a choice, not an omission — the three arguments, in this order:
+
+1. **Auditable.** We can point at the exact three SMS messages behind every warning. A
+   model can't. In personal finance an unexplainable number is one nobody acts on.
+2. **Testable.** 253 tests in milliseconds. No drift, no retraining, no silent regression.
+3. **Actually on-device.** Zero network calls, runs on a ₹8k phone with no accelerator.
+   A bundled model costs tens of MB; a cloud model kills the privacy claim outright.
+
+Concede one thing, specifically and unprompted: **merchant categorisation (§1.3) is where a
+small on-device classifier would genuinely beat our heuristics.** Naming your own weakest
+link buys more credibility than defending it does. It goes on the roadmap slide, not in
+this build.
+
+If asked *"where's the AI?"* — **"There isn't one. That's a design decision, here's the
+arithmetic instead."** Never call regex "NLP" and never call a median "a model."
+
 ---
 
 ## 2. Architecture

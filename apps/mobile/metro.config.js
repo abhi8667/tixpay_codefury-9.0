@@ -21,18 +21,28 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, 'node_modules'),
 ];
 
-// Resolve strictly from the paths above rather than walking parent dirs —
-// pnpm's non-flat layout makes hierarchical lookup unreliable.
-config.resolver.disableHierarchicalLookup = true;
+// Hierarchical lookup must stay ON.
+//
+// .npmrc pins node-linker=hoisted, so node_modules is flat at the workspace
+// root — but the entries there are symlinks into the .pnpm store, and once
+// Metro follows one it needs to walk parent directories to resolve that
+// package's own dependencies. Disabling hierarchical lookup breaks exactly
+// that step: `expo` resolves, then its internal `./launch/registerRootComponent`
+// import fails and the bundle 500s.
+config.resolver.disableHierarchicalLookup = false;
 
 // pnpm links workspace packages as symlinks; Metro must follow them.
 config.resolver.unstable_enableSymlinks = true;
 
-// Expo detects the pnpm workspace and defaults the server root to the monorepo
-// root. The Gradle bundle task passes the entry as `./index.js` relative to
-// apps/mobile, which then resolves against the monorepo root and fails. Pin the
-// server root to this app so that relative entry path resolves correctly.
-// watchFolders above still lets Metro read packages/ outside this directory.
-config.server = { ...config.server, unstable_serverRoot: projectRoot };
+// NOTE: do NOT pin `unstable_serverRoot` to projectRoot here.
+//
+// Expo computes the entry path the client asks for relative to the WORKSPACE
+// root, so a device requests /apps/mobile/index.bundle. Pinning the server root
+// to apps/mobile makes Metro resolve that as apps/mobile/apps/mobile/index and
+// every device request 404s, even though a hand-made request to /index.bundle
+// succeeds. Leave the default (workspace root) so both halves agree.
+//
+// Gradle is unaffected: android/app/build.gradle resolves entryFile to an
+// ABSOLUTE path via expo/scripts/resolveAppEntry, so it never depended on this.
 
 module.exports = config;

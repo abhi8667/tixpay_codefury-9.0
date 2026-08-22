@@ -19,7 +19,6 @@ export const ShortfallSheet: React.FC<ShortfallSheetProps> = ({
   const shortfalls = useAppStore((state) => state.shortfalls());
   const activeShortfall = shortfalls.length > 0 ? shortfalls[0] : undefined;
   const interventions = useAppStore((state) => state.interventions(activeShortfall));
-  const togglePauseMandate = useAppStore((state) => state.togglePauseMandate);
   const redactionOn = useAppStore((state) => state.redactionOn);
 
   const featuredIntervention = interventions.length > 0 ? interventions[0] : undefined;
@@ -29,9 +28,9 @@ export const ShortfallSheet: React.FC<ShortfallSheetProps> = ({
   const atRiskList = activeShortfall?.atRisk ?? [];
 
   const handleAction = (intervention: Intervention) => {
-    if (intervention.target?.id) {
-      togglePauseMandate(intervention.target.id);
-    }
+    // Deliberately does NOT apply the pause. This is the "pick one" step; the
+    // confirm modal owns applying it. Toggling here as well meant the two
+    // cancelled out and the curve never moved.
     onSelectAction(intervention.label, intervention);
   };
 

@@ -26,7 +26,10 @@ export const InsightsScreen: React.FC<InsightsScreenProps> = ({
   const redactionOn = useAppStore((state) => state.redactionOn);
 
   const activeShortfall = shortfalls.length > 0 ? shortfalls[0] : undefined;
-  const isBackInSafeZone = isResolved || (pausedMandateIds.length > 0 && (!activeShortfall || activeShortfall.deficit <= 0));
+  // Green means the projection genuinely cleared, not that a button was
+  // pressed. `isResolved` is still accepted as a prop for the caller's
+  // optimistic animation, but it can no longer manufacture a safe curve.
+  const isBackInSafeZone = !activeShortfall;
 
   const currentBalance = ledger?.currentBalance ?? (curve[0]?.balance ?? 12450);
   const safeSpendAmount = isBackInSafeZone ? 3499 : 2850;

@@ -12,6 +12,7 @@ import { KeeperScreen } from './src/screens/KeeperScreen';
 import { SimulatorDashboard } from './src/screens/SimulatorDashboard';
 import { OnboardingFlow } from './src/screens/onboarding/OnboardingFlow';
 import { t, space } from './src/theme';
+import type { Intervention } from '@tixpay/types';
 import { useAppStore } from './store/useAppStore';
 
 export type ScreenMode =
@@ -28,8 +29,8 @@ export type ScreenMode =
 export default function App() {
   const [screenMode, setScreenMode] = useState<ScreenMode>('INSIGHTS');
   const [activeTab, setActiveTab] = useState<TabName>('Insights');
-  const [isResolved, setIsResolved] = useState(false);
   const [selectedActionLabel, setSelectedActionLabel] = useState('Pause Netflix');
+  const [selectedIntervention, setSelectedIntervention] = useState<Intervention | undefined>();
 
   const togglePauseMandate = useAppStore((state) => state.togglePauseMandate);
   const mandates = useAppStore((state) => state.mandates());
@@ -97,7 +98,6 @@ export default function App() {
         ) : (
           <InsightsScreen
             onTapDip={() => setScreenMode('SHORTFALL_SHEET')}
-            isResolved={isResolved}
             onOpenKeeper={() => setScreenMode('KEEPER')}
             onOpenMandates={() => setScreenMode('MANDATE_HUB')}
           />
@@ -108,8 +108,9 @@ export default function App() {
       <ShortfallSheet
         visible={screenMode === 'SHORTFALL_SHEET'}
         onClose={() => setScreenMode('INSIGHTS')}
-        onSelectAction={(actionLabel) => {
+        onSelectAction={(actionLabel, intervention) => {
           setSelectedActionLabel(actionLabel);
+          setSelectedIntervention(intervention);
           setScreenMode('CONFIRM_MODAL');
         }}
       />
@@ -119,15 +120,13 @@ export default function App() {
         visible={screenMode === 'CONFIRM_MODAL'}
         actionTitle={selectedActionLabel}
         onConfirm={() => {
-          // Find target mandate to pause (e.g. Netflix)
-          const target = mandates.find((m) =>
-            m.displayName.toLowerCase().includes('netflix') ||
-            selectedActionLabel.toLowerCase().includes(m.displayName.toLowerCase())
-          );
+          // Apply exactly what the engine proposed. The previous version
+          // searched the mandate list for "netflix" by name, which silently did
+          // the wrong thing for every other intervention the engine can offer.
+          const target = selectedIntervention?.target;
           if (target) {
             togglePauseMandate(target.id);
           }
-          setIsResolved(true);
           setScreenMode('INSIGHTS');
         }}
         onCancel={() => setScreenMode('INSIGHTS')}

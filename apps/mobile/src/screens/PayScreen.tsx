@@ -1,13 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, TextInput } from 'react-native';
+import type { PaymentIntent, VerdictLevel } from '@tixpay/types';
+import { deriveTxnRef } from '@tixpay/engine';
 import { t, typography, space, radius } from '../theme';
 import { useAppStore } from '../../store/useAppStore';
+import { redact } from '../utils/redaction';
+import { QrScanner } from './QrScanner';
 
 interface PayScreenProps {
   visible: boolean;
   onClose: () => void;
   onPaySuccess: () => void;
 }
+
+/** Where the pay sheet starts when nothing has been scanned. */
+const DEFAULT_PAYEE = { vpa: 'croma.store@ybl', name: 'Croma Electronics' };
+
+/** Verdict level to the three colours the sheet can wear. */
+const LEVEL_STYLE: Record<VerdictLevel, { color: string; bg: string; badge: string }> = {
+  WARNING: { color: t.danger, bg: '#261214', badge: 'URGENT' },
+  ADVISORY: { color: t.warn, bg: '#1E190E', badge: 'HEADS UP' },
+  CLEAR: { color: t.ok, bg: '#0E1F16', badge: 'CLEAR' },
+};
 
 export const PayScreen: React.FC<PayScreenProps> = ({
   visible,
@@ -16,25 +30,59 @@ export const PayScreen: React.FC<PayScreenProps> = ({
 }) => {
   const [amountStr, setAmountStr] = useState('8000');
   const [selectedInstrument, setSelectedInstrument] = useState<'WALLET' | 'BANK'>('WALLET');
+  const [payee, setPayee] = useState(DEFAULT_PAYEE);
+  const [scanning, setScanning] = useState(false);
 
-  const recommendation = useAppStore((state) => state.recommendation());
-  const shortfalls = useAppStore((state) => state.shortfalls());
   const ledger = useAppStore((state) => state.ledger());
   const curve = useAppStore((state) => state.curve());
   const redactionOn = useAppStore((state) => state.redactionOn);
   const executePaymentStore = useAppStore((state) => state.executePayment);
+  const evaluate = useAppStore((state) => state.evaluate);
+  // The pipeline cache is the real dependency of the verdict below: evaluating
+  // against a stale cache would show yesterday's warning after the World Clock
+  // moves.
+  const pipelineCache = useAppStore((state) => state._pipelineCache);
 
   const currentBalance = ledger?.currentBalance ?? (curve[0]?.balance ?? 12450);
-  const activeShortfall = shortfalls.length > 0 ? shortfalls[0] : undefined;
-  const atRiskItem = activeShortfall?.atRisk?.[0];
-
   const amountVal = parseFloat(amountStr) || 0;
-  const payeeDisplayName = redactionOn ? 'Tarun Aadhithya ••••' : 'Tarun Aadhithya V Sureendran Minor';
-  const payeeVpaDisplay = redactionOn ? 'aadhi••••@okicici' : 'aadhi7525@okicici';
+
+  /**
+   * The intercept.
+   *
+   * Recomputed on every keystroke because that IS the feature: a judge types
+   * 500 and sees green, types 8000 and sees the SIP about to bounce. A cached
+   * or debounced verdict reads as a canned response.
+   */
+  const verdict = useMemo(() => {
+    if (amountVal <= 0) return null;
+    const intent: PaymentIntent = {
+      vpa: payee.vpa,
+      payeeName: payee.name,
+      amount: amountVal,
+      txnRef: deriveTxnRef(payee.vpa, amountVal),
+      source: 'MANUAL',
+    };
+    return evaluate(intent);
+  }, [amountVal, payee.vpa, payee.name, evaluate, pipelineCache]);
+
+  const level: VerdictLevel = verdict?.level ?? 'CLEAR';
+  const skin = LEVEL_STYLE[level];
+  const recommendation = verdict?.recommendation;
+  const showRecommendation = recommendation && recommendation.rail === 'CARD_SWIPE';
+
+  const payeeDisplayName = payee.name;
+  const payeeVpaDisplay = redactionOn ? redact.vpa(payee.vpa) : payee.vpa;
+
+  const handleScanned = (intent: PaymentIntent) => {
+    setPayee({ vpa: intent.vpa, name: intent.payeeName });
+    // Static merchant QRs carry no amount; keep whatever the user typed.
+    if (intent.amount > 0) setAmountStr(String(intent.amount));
+    setScanning(false);
+  };
 
   const handleConfirmPay = () => {
     if (amountVal > 0) {
-      executePaymentStore(amountVal, payeeDisplayName);
+      executePaymentStore(amountVal, payee.name, payee.vpa);
     }
     onPaySuccess();
   };
@@ -45,14 +93,17 @@ export const PayScreen: React.FC<PayScreenProps> = ({
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.backBtn}>
-            <Text style={styles.backText}>←</Text>
+            <Text style={styles.backText}>&#8592;</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setScanning(true)} style={styles.scanBtn}>
+            <Text style={styles.scanBtnText}>Scan QR</Text>
           </TouchableOpacity>
         </View>
 
         {/* Payee Info */}
         <View style={styles.payeeSection}>
           <View style={styles.avatarCircle}>
-            <Text style={styles.avatarText}>T</Text>
+            <Text style={styles.avatarText}>{payeeDisplayName.charAt(0).toUpperCase()}</Text>
           </View>
           <Text style={styles.payeeName}>{payeeDisplayName}</Text>
           <Text style={styles.payeeVpa}>{payeeVpaDisplay}</Text>
@@ -60,7 +111,7 @@ export const PayScreen: React.FC<PayScreenProps> = ({
 
         {/* Interactive Amount Input */}
         <View style={styles.amountBox}>
-          <Text style={styles.rupeeSymbol}>₹</Text>
+          <Text style={styles.rupeeSymbol}>&#8377;</Text>
           <TextInput
             style={styles.amountInput}
             value={amountStr}
@@ -80,41 +131,69 @@ export const PayScreen: React.FC<PayScreenProps> = ({
               onPress={() => setAmountStr(preset)}
             >
               <Text style={[styles.presetChipText, amountStr === preset && styles.presetChipTextActive]}>
-                ₹{Number(preset).toLocaleString('en-IN')}
+                &#8377;{Number(preset).toLocaleString('en-IN')}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
 
         <ScrollView style={styles.warningList} showsVerticalScrollIndicator={false}>
-          {/* Pre-Payment Intercept Warning Stack */}
-          {activeShortfall && (
-            <View style={styles.warningItemUrgent}>
-              <View style={styles.badgeUrgent}>
-                <Text style={styles.badgeUrgentText}>URGENT</Text>
+          {/* Pre-payment intercept: live verdict from evaluatePayment() */}
+          {verdict && (
+            <View
+              style={[
+                styles.verdictCard,
+                { backgroundColor: skin.bg, borderColor: skin.color },
+              ]}
+            >
+              <View style={styles.verdictHeaderRow}>
+                <View style={[styles.badge, { backgroundColor: skin.color }]}>
+                  <Text style={styles.badgeText}>{skin.badge}</Text>
+                </View>
+                {verdict.recommendation && verdict.recommendation.mccConfidence < 1 && (
+                  <Text style={styles.mccConfidence}>
+                    merchant match {Math.round(verdict.recommendation.mccConfidence * 100)}%
+                  </Text>
+                )}
               </View>
-              <View style={styles.warningInfo}>
-                <Text style={styles.warningTitle}>You'll miss an upcoming critical debit</Text>
-                <Text style={styles.warningSub}>
-                  {atRiskItem ? `${atRiskItem.displayName} • ₹${atRiskItem.amount} on ${atRiskItem.dayOfMonth} Mar` : '₹3,200 deficit projected on Mar 12'}
-                </Text>
-              </View>
-              <Text style={styles.viewDetailsText}>View Details ›</Text>
+
+              <Text style={[styles.verdictHeadline, { color: skin.color }]}>
+                {verdict.headline}
+              </Text>
+              {verdict.subline && <Text style={styles.verdictSubline}>{verdict.subline}</Text>}
+
+              {verdict.atRisk.length > 0 && (
+                <View style={styles.atRiskBlock}>
+                  {verdict.atRisk.slice(0, 3).map((m) => (
+                    <View key={m.id} style={styles.atRiskRow}>
+                      <Text style={styles.atRiskName}>{m.displayName}</Text>
+                      <Text style={styles.atRiskAmount}>
+                        &#8377;{m.amount.toLocaleString('en-IN')}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
           )}
 
-          {recommendation && (
+          {/* Cross-rail arbitrage: only when the engine actually prefers a card */}
+          {showRecommendation && (
             <View style={styles.warningItemImportant}>
               <View style={styles.badgeImportant}>
-                <Text style={styles.badgeImportantText}>RECOMMENDATION</Text>
+                <Text style={styles.badgeImportantText}>BETTER RAIL</Text>
               </View>
               <View style={styles.warningInfo}>
                 <Text style={styles.warningTitle}>
-                  💳 {typeof recommendation.instrument === 'string' ? recommendation.instrument : recommendation.instrument.name}
+                  {typeof recommendation.instrument === 'string'
+                    ? 'Bank account'
+                    : recommendation.instrument.name}
                 </Text>
                 <Text style={styles.warningSub}>{recommendation.reason}</Text>
+                {recommendation.warnings.map((w) => (
+                  <Text key={w} style={styles.warningCaveat}>{w}</Text>
+                ))}
               </View>
-              <Text style={styles.viewDetailsText}>Switch ›</Text>
             </View>
           )}
         </ScrollView>
@@ -134,26 +213,38 @@ export const PayScreen: React.FC<PayScreenProps> = ({
               <Text style={styles.instLogoText}>Bank</Text>
             </View>
             <View style={styles.instMeta}>
-              <Text style={styles.instName}>HDFC Bank UPI (**4471)</Text>
+              <Text style={styles.instName}>
+                HDFC Bank UPI ({redactionOn ? redact.tail('4471') : '4471'})
+              </Text>
               <Text style={styles.instBal}>
-                Available Balance: ₹{currentBalance.toLocaleString('en-IN')}
+                Available Balance: &#8377;{currentBalance.toLocaleString('en-IN')}
               </Text>
             </View>
             <View style={[styles.radio, selectedInstrument === 'WALLET' && styles.radioActive]} />
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.payNowBtn}
+            style={[styles.payNowBtn, { backgroundColor: skin.color }]}
             onPress={handleConfirmPay}
             activeOpacity={0.8}
           >
-            <Text style={styles.payNowBtnText}>Pay ₹{amountVal.toLocaleString('en-IN')}</Text>
+            <Text style={styles.payNowBtnText}>
+              Pay &#8377;{amountVal.toLocaleString('en-IN')}
+            </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={handleConfirmPay} style={styles.payAnywayLink}>
-            <Text style={styles.payAnywayText}>Pay anyway without recommendation</Text>
-          </TouchableOpacity>
+          {level !== 'CLEAR' && (
+            <TouchableOpacity onPress={handleConfirmPay} style={styles.payAnywayLink}>
+              <Text style={styles.payAnywayText}>Pay anyway</Text>
+            </TouchableOpacity>
+          )}
         </View>
+
+        <QrScanner
+          visible={scanning}
+          onClose={() => setScanning(false)}
+          onScanned={handleScanned}
+        />
       </View>
     </Modal>
   );
@@ -168,7 +259,86 @@ const styles = StyleSheet.create({
   },
   header: {
     height: 44,
-    justifyContent: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  scanBtn: {
+    backgroundColor: t.surfaceHi,
+    borderColor: t.border,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: space.md,
+    paddingVertical: 6,
+  },
+  scanBtnText: {
+    color: t.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  verdictCard: {
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: space.md,
+    marginBottom: space.sm,
+  },
+  verdictHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: space.xs,
+  },
+  badge: {
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    alignSelf: 'flex-start',
+  },
+  badgeText: {
+    color: '#000000',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  mccConfidence: {
+    color: t.textDim,
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  verdictHeadline: {
+    fontSize: 15,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
+  verdictSubline: {
+    color: t.text,
+    fontSize: 13,
+    marginTop: 4,
+  },
+  atRiskBlock: {
+    marginTop: space.sm,
+    borderTopWidth: 1,
+    borderTopColor: t.border,
+    paddingTop: space.xs,
+  },
+  atRiskRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 2,
+  },
+  atRiskName: {
+    color: t.textDim,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  atRiskAmount: {
+    color: t.text,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  warningCaveat: {
+    color: t.textDim,
+    fontSize: 10,
+    marginTop: 2,
   },
   backBtn: {
     width: 40,
